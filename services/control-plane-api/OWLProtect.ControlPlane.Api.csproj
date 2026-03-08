@@ -7,5 +7,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Shared\OWLProtect.Core\OWLProtect.Core.csproj" />
   </ItemGroup>
-</Project>
 
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="sql\**\*.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

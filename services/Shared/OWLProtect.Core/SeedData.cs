@@ -6,7 +6,7 @@ public static class SeedData
         new(
             "admin-1",
             "admin",
-            "admin",
+            PasswordProtector.Hash("admin"),
             AdminRole.SuperAdmin,
             MustChangePassword: true,
             MfaEnrolled: false);
@@ -110,4 +110,3 @@ public static class SeedData
         new("audit-2", "system", "seed-test-user", "user", "user-1", DateTimeOffset.Parse("2026-03-07T22:00:00Z"), "success", "Seeded disabled test user with restricted default policy.")
     ];
 }
-

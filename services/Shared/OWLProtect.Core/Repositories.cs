@@ -11,6 +11,11 @@ public interface IBootstrapService
     bool ValidatePrivilegedOperation(bool stepUpSatisfied);
 }
 
+public interface IDashboardQueryService
+{
+    DashboardSnapshot Snapshot();
+}
+
 public interface IAdminRepository
 {
     IReadOnlyList<AdminAccount> ListAdmins();
@@ -19,20 +24,25 @@ public interface IAdminRepository
 public interface IUserRepository
 {
     IReadOnlyList<User> ListUsers();
+    User UpsertUser(User user);
     User EnableUser(string userId, string actor);
     User DisableUser(string userId, string actor, string reason);
+    void DeleteUser(string userId);
 }
 
 public interface IDeviceRepository
 {
     IReadOnlyList<Device> ListDevices();
     IReadOnlyList<ConnectionMapPoint> GetConnectionMap();
+    Device UpsertDevice(Device device);
+    void DeleteDevice(string deviceId);
 }
 
 public interface IGatewayRepository
 {
     IReadOnlyList<Gateway> ListGateways();
     Gateway UpsertGatewayHeartbeat(Gateway gateway);
+    void DeleteGateway(string gatewayId);
 }
 
 public interface IGatewayPoolRepository
@@ -43,11 +53,15 @@ public interface IGatewayPoolRepository
 public interface IPolicyRepository
 {
     IReadOnlyList<PolicyRule> ListPolicies();
+    PolicyRule UpsertPolicy(PolicyRule policy);
+    void DeletePolicy(string policyId);
 }
 
 public interface ISessionRepository
 {
     IReadOnlyList<TunnelSession> ListSessions();
+    TunnelSession UpsertSession(TunnelSession session);
+    bool RevokeSession(string sessionId, string actor, string reason);
 }
 
 public interface IHealthSampleRepository
