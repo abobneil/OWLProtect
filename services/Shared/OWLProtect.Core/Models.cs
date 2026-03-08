@@ -147,13 +147,35 @@ public sealed record AuthProviderConfig(
 
 public sealed record AuditEvent(
     string Id,
+    long Sequence,
     string Actor,
     string Action,
     string TargetType,
     string TargetId,
     DateTimeOffset CreatedAtUtc,
     string Outcome,
-    string Detail);
+    string Detail,
+    string? PreviousEventHash,
+    string EventHash);
+
+public sealed record AuditRetentionOperation(
+    DateTimeOffset CutoffUtc,
+    DateTimeOffset ExportedAtUtc,
+    string ExportPath,
+    long RemovedThroughSequence,
+    DateTimeOffset RemovedThroughCreatedAtUtc,
+    string RemovedThroughEventHash,
+    int ExportedEventCount);
+
+public sealed record AuditRetentionCheckpoint(
+    string Id,
+    DateTimeOffset CutoffUtc,
+    DateTimeOffset ExportedAtUtc,
+    string ExportPath,
+    long RemovedThroughSequence,
+    DateTimeOffset RemovedThroughCreatedAtUtc,
+    string RemovedThroughEventHash,
+    int ExportedEventCount);
 
 public sealed record DashboardSnapshot(
     IReadOnlyList<AdminAccount> Admins,

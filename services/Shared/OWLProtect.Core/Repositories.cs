@@ -83,11 +83,18 @@ public interface IAuthProviderConfigRepository
 public interface IAuditRepository
 {
     IReadOnlyList<AuditEvent> ListAuditEvents();
+    IReadOnlyList<AuditEvent> ListAuditEventsForExport(DateTimeOffset createdBeforeUtc, int limit);
+    IReadOnlyList<AuditRetentionCheckpoint> ListAuditRetentionCheckpoints();
 }
 
 public interface IAuditWriter
 {
     void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail);
+}
+
+public interface IAuditRetentionRepository
+{
+    AuditRetentionCheckpoint ApplyRetention(AuditRetentionOperation operation);
 }
 
 public interface IPlatformSessionStore

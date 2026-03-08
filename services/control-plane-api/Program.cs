@@ -6,6 +6,7 @@ using OWLProtect.Core;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection("Persistence"));
 builder.Services.Configure<SecretManagementOptions>(builder.Configuration.GetSection("SecretManagement"));
+builder.Services.Configure<AuditRetentionOptions>(builder.Configuration.GetSection("AuditRetention"));
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -38,6 +39,7 @@ if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnor
     builder.Services.AddSingleton<IAuthProviderConfigRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
+    builder.Services.AddSingleton<IAuditRetentionRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IPlatformSessionStore, PostgresPlatformSessionStore>();
 }
 else
@@ -57,10 +59,13 @@ else
     builder.Services.AddSingleton<IAuthProviderConfigRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+    builder.Services.AddSingleton<IAuditRetentionRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IPlatformSessionStore, InMemoryPlatformSessionStore>();
 }
 
 builder.Services.AddSingleton<IBootstrapAdminCredentialsProvider, ConfigurationBootstrapAdminCredentialsProvider>();
+builder.Services.AddSingleton<AuditRetentionService>();
+builder.Services.AddHostedService<AuditRetentionWorker>();
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<OpenIdConnectTokenValidator>();
@@ -361,6 +366,16 @@ compliantAdminGroup.MapGet("/telemetry/query", (IHealthSampleRepository healthSa
 compliantAdminGroup.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
 compliantAdminGroup.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
 compliantAdminGroup.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
+compliantAdminGroup.MapGet("/audit/checkpoints", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditRetentionCheckpoints()));
+compliantAdminGroup.MapGet("/audit/export", (IAuditRepository auditRepository, DateTimeOffset? before, int? limit) =>
+{
+    var boundedLimit = Math.Clamp(limit ?? 1000, 1, 10_000);
+    var events = before.HasValue
+        ? auditRepository.ListAuditEventsForExport(before.Value, boundedLimit)
+        : [.. auditRepository.ListAuditEvents().OrderBy(evt => evt.Sequence).TakeLast(boundedLimit)];
+
+    return Results.Ok(new AuditExportResponse(DateTimeOffset.UtcNow, before, events.Count, events));
+});
 
 var operatorAdminGroup = app.MapGroup(string.Empty);
 operatorAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
@@ -464,6 +479,11 @@ privilegedAdminGroup.MapPost("/privileged/step-up", (HttpContext context, Privil
     operation = request.OperationName,
     status = "approved"
 }));
+privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionService auditRetentionService, CancellationToken cancellationToken) =>
+{
+    var result = await auditRetentionService.RunRetentionAsync(cancellationToken);
+    return Results.Ok(new AuditRetentionRunResponse(result.ExportedEventCount, result.Checkpoint));
+});
 
 // Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
 app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));

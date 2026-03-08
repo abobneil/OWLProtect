@@ -134,6 +134,7 @@ export interface AuthProviderConfig {
 
 export interface AuditEvent {
   id: string;
+  sequence: number;
   actor: string;
   action: string;
   targetType: string;
@@ -141,6 +142,26 @@ export interface AuditEvent {
   createdAtUtc: string;
   outcome: "success" | "failure";
   detail: string;
+  previousEventHash: string | null;
+  eventHash: string;
+}
+
+export interface AuditRetentionCheckpoint {
+  id: string;
+  cutoffUtc: string;
+  exportedAtUtc: string;
+  exportPath: string;
+  removedThroughSequence: number;
+  removedThroughCreatedAtUtc: string;
+  removedThroughEventHash: string;
+  exportedEventCount: number;
+}
+
+export interface AuditExportResponse {
+  generatedAtUtc: string;
+  cutoffUtc: string | null;
+  eventCount: number;
+  events: AuditEvent[];
 }
 
 export interface PlatformSession {
@@ -381,23 +402,29 @@ export const seededSnapshot: DashboardSnapshot = {
   auditEvents: [
     {
       id: "audit-1",
+      sequence: 1,
       actor: "system",
       action: "seed-default-admin",
       targetType: "admin",
       targetId: "admin-1",
       createdAtUtc: "2026-03-07T22:00:00Z",
       outcome: "success",
-      detail: "Seeded default admin with forced password reset."
+      detail: "Seeded default admin with forced password reset.",
+      previousEventHash: null,
+      eventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80"
     },
     {
       id: "audit-2",
+      sequence: 2,
       actor: "system",
       action: "seed-test-user",
       targetType: "user",
       targetId: "user-1",
       createdAtUtc: "2026-03-07T22:00:00Z",
       outcome: "success",
-      detail: "Seeded disabled test user with restricted default policy."
+      detail: "Seeded disabled test user with restricted default policy.",
+      previousEventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80",
+      eventHash: "81c1d5d266f11fa950a49b4130563f9811c0433b1696795ab2bd58b8d085def2"
     }
   ]
 };

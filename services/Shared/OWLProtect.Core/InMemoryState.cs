@@ -16,7 +16,8 @@ public sealed class InMemoryState :
     IAlertRepository,
     IAuthProviderConfigRepository,
     IAuditRepository,
-    IAuditWriter
+    IAuditWriter,
+    IAuditRetentionRepository
 {
     private readonly Lock _gate = new();
     private AdminAccount _defaultAdmin;
@@ -32,6 +33,7 @@ public sealed class InMemoryState :
     private readonly List<Alert> _alerts = [.. SeedData.Alerts];
     private readonly List<AuthProviderConfig> _authProviders = [.. SeedData.AuthProviders];
     private readonly List<AuditEvent> _auditEvents = [.. SeedData.AuditEvents];
+    private readonly List<AuditRetentionCheckpoint> _auditRetentionCheckpoints = [];
 
     public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
     {
@@ -451,7 +453,26 @@ public sealed class InMemoryState :
     {
         lock (_gate)
         {
-            return [.. _auditEvents.OrderByDescending(evt => evt.CreatedAtUtc)];
+            return [.. _auditEvents.OrderByDescending(evt => evt.Sequence)];
+        }
+    }
+
+    public IReadOnlyList<AuditEvent> ListAuditEventsForExport(DateTimeOffset createdBeforeUtc, int limit)
+    {
+        lock (_gate)
+        {
+            return [.. _auditEvents
+                .Where(evt => evt.CreatedAtUtc <= createdBeforeUtc)
+                .OrderBy(evt => evt.Sequence)
+                .Take(limit)];
+        }
+    }
+
+    public IReadOnlyList<AuditRetentionCheckpoint> ListAuditRetentionCheckpoints()
+    {
+        lock (_gate)
+        {
+            return [.. _auditRetentionCheckpoints.OrderByDescending(item => item.ExportedAtUtc)];
         }
     }
 
@@ -460,6 +481,25 @@ public sealed class InMemoryState :
         lock (_gate)
         {
             AddAudit(actor, action, targetType, targetId, outcome, detail);
+        }
+    }
+
+    public AuditRetentionCheckpoint ApplyRetention(AuditRetentionOperation operation)
+    {
+        lock (_gate)
+        {
+            _auditEvents.RemoveAll(item => item.Sequence <= operation.RemovedThroughSequence);
+            var checkpoint = new AuditRetentionCheckpoint(
+                Guid.NewGuid().ToString("n"),
+                operation.CutoffUtc,
+                operation.ExportedAtUtc,
+                operation.ExportPath,
+                operation.RemovedThroughSequence,
+                operation.RemovedThroughCreatedAtUtc,
+                operation.RemovedThroughEventHash,
+                operation.ExportedEventCount);
+            _auditRetentionCheckpoints.Add(checkpoint);
+            return checkpoint;
         }
     }
 
@@ -505,7 +545,8 @@ public sealed class InMemoryState :
 
     private void AddAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
     {
-        _auditEvents.Add(new AuditEvent(
+        _auditEvents.Add(AuditChain.CreateNext(
+            _auditEvents.LastOrDefault(),
             Guid.NewGuid().ToString("n"),
             actor,
             action,
@@ -529,6 +570,8 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(List<TunnelSession>))]
 [JsonSerializable(typeof(List<PolicyRule>))]
 [JsonSerializable(typeof(List<AuthProviderConfig>))]
+[JsonSerializable(typeof(List<AuditEvent>))]
+[JsonSerializable(typeof(List<AuditRetentionCheckpoint>))]
 [JsonSerializable(typeof(PlatformSession))]
 [JsonSerializable(typeof(IssuedPlatformSession))]
 public partial class OwlProtectJsonContext : JsonSerializerContext;

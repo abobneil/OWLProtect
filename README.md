@@ -26,6 +26,8 @@ See [docs/foundation/contracts-versioning-and-config.md](docs/foundation/contrac
 
 See [docs/security/secret-management-and-rotation.md](docs/security/secret-management-and-rotation.md) for the current bootstrap secret-loading and rotation guidance.
 
+See [docs/security/audit-retention-and-export.md](docs/security/audit-retention-and-export.md) for the current audit durability, retention, and export guidance.
+
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the current service-boundary overview and [docs/adr](docs/adr) for the accepted architecture decisions.
 
 See [.env.local.example](.env.local.example) and [.env.selfhosted.example](.env.selfhosted.example) for local and self-hosted deployment input examples.

@@ -104,9 +104,9 @@ public static class SeedData
         new("auth-2", "Generic OIDC", "oidc", "https://identity.example.com", "oidc-client-id", ["amr"], false)
     ];
 
-    public static readonly IReadOnlyList<AuditEvent> AuditEvents =
+    public static readonly IReadOnlyList<AuditEvent> AuditEvents = AuditChain.CreateSeedChain(
     [
-        new("audit-1", "system", "seed-default-admin", "admin", "admin-1", DateTimeOffset.Parse("2026-03-07T22:00:00Z"), "success", "Seeded default admin with forced password reset."),
-        new("audit-2", "system", "seed-test-user", "user", "user-1", DateTimeOffset.Parse("2026-03-07T22:00:00Z"), "success", "Seeded disabled test user with restricted default policy.")
-    ];
+        new AuditEventDraft("audit-1", "system", "seed-default-admin", "admin", "admin-1", DateTimeOffset.Parse("2026-03-07T22:00:00Z"), "success", "Seeded default admin with forced password reset."),
+        new AuditEventDraft("audit-2", "system", "seed-test-user", "user", "user-1", DateTimeOffset.Parse("2026-03-07T22:00:00Z"), "success", "Seeded disabled test user with restricted default policy.")
+    ]);
 }

@@ -141,11 +141,67 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id TEXT PRIMARY KEY,
+    sequence_number BIGINT NULL,
     actor TEXT NOT NULL,
     action TEXT NOT NULL,
     target_type TEXT NOT NULL,
     target_id TEXT NOT NULL,
     created_at_utc TIMESTAMPTZ NOT NULL,
     outcome TEXT NOT NULL,
-    detail TEXT NOT NULL
+    detail TEXT NOT NULL,
+    previous_event_hash TEXT NULL,
+    event_hash TEXT NULL
 );
+
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS sequence_number BIGINT NULL;
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS previous_event_hash TEXT NULL;
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash TEXT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_audit_events_sequence_number
+    ON audit_events (sequence_number)
+    WHERE sequence_number IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS audit_retention_checkpoints (
+    id TEXT PRIMARY KEY,
+    cutoff_utc TIMESTAMPTZ NOT NULL,
+    exported_at_utc TIMESTAMPTZ NOT NULL,
+    export_path TEXT NOT NULL,
+    removed_through_sequence BIGINT NOT NULL,
+    removed_through_created_at_utc TIMESTAMPTZ NOT NULL,
+    removed_through_event_hash TEXT NOT NULL,
+    exported_event_count INTEGER NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION owlprotect_allow_audit_maintenance()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN current_setting('owlprotect.allow_audit_maintenance', true) = 'on';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION owlprotect_block_audit_event_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF owlprotect_allow_audit_maintenance() THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'audit_events is append-only outside controlled maintenance';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tr_audit_events_block_update ON audit_events;
+CREATE TRIGGER tr_audit_events_block_update
+    BEFORE UPDATE ON audit_events
+    FOR EACH ROW
+    EXECUTE FUNCTION owlprotect_block_audit_event_mutation();
+
+DROP TRIGGER IF EXISTS tr_audit_events_block_delete ON audit_events;
+CREATE TRIGGER tr_audit_events_block_delete
+    BEFORE DELETE ON audit_events
+    FOR EACH ROW
+    EXECUTE FUNCTION owlprotect_block_audit_event_mutation();

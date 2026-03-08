@@ -19,6 +19,7 @@ public sealed partial class PostgresStore :
     IAuthProviderConfigRepository,
     IAuditRepository,
     IAuditWriter,
+    IAuditRetentionRepository,
     IDisposable
 {
     private readonly ILogger<PostgresStore> _logger;
@@ -57,6 +58,8 @@ public sealed partial class PostgresStore :
         {
             await SeedIfEmptyAsync(cancellationToken);
         }
+
+        await BackfillAuditChainAsync(cancellationToken);
     }
 
     public void Dispose() => _dataSource.Dispose();
@@ -64,7 +67,78 @@ public sealed partial class PostgresStore :
     public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
     {
         using var connection = _dataSource.OpenConnection();
-        AddAudit(connection, actor, action, targetType, targetId, outcome, detail);
+        using var transaction = connection.BeginTransaction();
+        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        transaction.Commit();
+    }
+
+    public AuditRetentionCheckpoint ApplyRetention(AuditRetentionOperation operation)
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        LockAuditChain(connection, transaction);
+        EnableAuditMaintenance(connection, transaction);
+
+        var checkpoint = new AuditRetentionCheckpoint(
+            Guid.NewGuid().ToString("n"),
+            operation.CutoffUtc,
+            operation.ExportedAtUtc,
+            operation.ExportPath,
+            operation.RemovedThroughSequence,
+            operation.RemovedThroughCreatedAtUtc,
+            operation.RemovedThroughEventHash,
+            operation.ExportedEventCount);
+
+        using (var insert = new NpgsqlCommand(
+                   """
+                   INSERT INTO audit_retention_checkpoints (
+                       id,
+                       cutoff_utc,
+                       exported_at_utc,
+                       export_path,
+                       removed_through_sequence,
+                       removed_through_created_at_utc,
+                       removed_through_event_hash,
+                       exported_event_count)
+                   VALUES (
+                       @id,
+                       @cutoff_utc,
+                       @exported_at_utc,
+                       @export_path,
+                       @removed_through_sequence,
+                       @removed_through_created_at_utc,
+                       @removed_through_event_hash,
+                       @exported_event_count)
+                   """,
+                   connection,
+                   transaction))
+        {
+            insert.Parameters.AddWithValue("id", checkpoint.Id);
+            insert.Parameters.AddWithValue("cutoff_utc", checkpoint.CutoffUtc);
+            insert.Parameters.AddWithValue("exported_at_utc", checkpoint.ExportedAtUtc);
+            insert.Parameters.AddWithValue("export_path", checkpoint.ExportPath);
+            insert.Parameters.AddWithValue("removed_through_sequence", checkpoint.RemovedThroughSequence);
+            insert.Parameters.AddWithValue("removed_through_created_at_utc", checkpoint.RemovedThroughCreatedAtUtc);
+            insert.Parameters.AddWithValue("removed_through_event_hash", checkpoint.RemovedThroughEventHash);
+            insert.Parameters.AddWithValue("exported_event_count", checkpoint.ExportedEventCount);
+            insert.ExecuteNonQuery();
+        }
+
+        using (var delete = new NpgsqlCommand(
+                   """
+                   DELETE FROM audit_events
+                   WHERE sequence_number <= @removed_through_sequence
+                   """,
+                   connection,
+                   transaction))
+        {
+            delete.Parameters.AddWithValue("removed_through_sequence", checkpoint.RemovedThroughSequence);
+            delete.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return checkpoint;
     }
 
     private string BootstrapAdminUsername => _bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials().Username;
@@ -109,27 +183,168 @@ public sealed partial class PostgresStore :
         command.ExecuteNonQuery();
     }
 
-    private void AddAudit(NpgsqlConnection connection, string actor, string action, string targetType, string targetId, string outcome, string detail) =>
-        AddAudit(connection, transaction: null, actor, action, targetType, targetId, outcome, detail);
+    private void AddAudit(NpgsqlConnection connection, string actor, string action, string targetType, string targetId, string outcome, string detail)
+    {
+        using var transaction = connection.BeginTransaction();
+        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        transaction.Commit();
+    }
 
     private void AddAudit(NpgsqlConnection connection, NpgsqlTransaction? transaction, string actor, string action, string targetType, string targetId, string outcome, string detail)
     {
-        using var command = new NpgsqlCommand(
+        var auditEvent = CreateNextAuditEvent(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        InsertAuditEvent(connection, transaction, auditEvent);
+    }
+
+    private AuditEvent CreateNextAuditEvent(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        string actor,
+        string action,
+        string targetType,
+        string targetId,
+        string outcome,
+        string detail)
+    {
+        LockAuditChain(connection, transaction);
+
+        using var latestCommand = new NpgsqlCommand(
             """
-            INSERT INTO audit_events (id, actor, action, target_type, target_id, created_at_utc, outcome, detail)
-            VALUES (@id, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail)
+            SELECT sequence_number, event_hash
+            FROM audit_events
+            WHERE sequence_number IS NOT NULL
+            ORDER BY sequence_number DESC
+            LIMIT 1
             """,
             connection,
             transaction);
-        command.Parameters.AddWithValue("id", Guid.NewGuid().ToString("n"));
-        command.Parameters.AddWithValue("actor", actor);
-        command.Parameters.AddWithValue("action", action);
-        command.Parameters.AddWithValue("target_type", targetType);
-        command.Parameters.AddWithValue("target_id", targetId);
-        command.Parameters.AddWithValue("created_at_utc", DateTimeOffset.UtcNow);
-        command.Parameters.AddWithValue("outcome", outcome);
-        command.Parameters.AddWithValue("detail", detail);
+        using var reader = latestCommand.ExecuteReader();
+
+        long previousSequence = 0;
+        string? previousHash = null;
+        if (reader.Read())
+        {
+            previousSequence = reader.GetInt64(0);
+            previousHash = reader.IsDBNull(1) ? null : reader.GetString(1);
+        }
+
+        return AuditChain.CreateNext(
+            previousSequence,
+            previousHash,
+            Guid.NewGuid().ToString("n"),
+            actor,
+            action,
+            targetType,
+            targetId,
+            DateTimeOffset.UtcNow,
+            outcome,
+            detail);
+    }
+
+    private static void InsertAuditEvent(NpgsqlConnection connection, NpgsqlTransaction? transaction, AuditEvent auditEvent)
+    {
+        using var command = new NpgsqlCommand(
+            """
+            INSERT INTO audit_events (id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash)
+            VALUES (@id, @sequence_number, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail, @previous_event_hash, @event_hash)
+            """,
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("id", auditEvent.Id);
+        command.Parameters.AddWithValue("sequence_number", auditEvent.Sequence);
+        command.Parameters.AddWithValue("actor", auditEvent.Actor);
+        command.Parameters.AddWithValue("action", auditEvent.Action);
+        command.Parameters.AddWithValue("target_type", auditEvent.TargetType);
+        command.Parameters.AddWithValue("target_id", auditEvent.TargetId);
+        command.Parameters.AddWithValue("created_at_utc", auditEvent.CreatedAtUtc);
+        command.Parameters.AddWithValue("outcome", auditEvent.Outcome);
+        command.Parameters.AddWithValue("detail", auditEvent.Detail);
+        command.Parameters.AddWithValue("previous_event_hash", (object?)auditEvent.PreviousEventHash ?? DBNull.Value);
+        command.Parameters.AddWithValue("event_hash", auditEvent.EventHash);
         command.ExecuteNonQuery();
+    }
+
+    private static void LockAuditChain(NpgsqlConnection connection, NpgsqlTransaction? transaction)
+    {
+        using var command = new NpgsqlCommand("LOCK TABLE audit_events IN EXCLUSIVE MODE", connection, transaction);
+        command.ExecuteNonQuery();
+    }
+
+    private static void EnableAuditMaintenance(NpgsqlConnection connection, NpgsqlTransaction transaction)
+    {
+        using var command = new NpgsqlCommand("SET LOCAL owlprotect.allow_audit_maintenance = 'on'", connection, transaction);
+        command.ExecuteNonQuery();
+    }
+
+    private async Task BackfillAuditChainAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var check = new NpgsqlCommand(
+            """
+            SELECT COUNT(1)
+            FROM audit_events
+            WHERE sequence_number IS NULL
+               OR event_hash IS NULL
+            """,
+            connection);
+        var missingAuditChain = Convert.ToInt64(await check.ExecuteScalarAsync(cancellationToken));
+        if (missingAuditChain == 0)
+        {
+            return;
+        }
+
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        EnableAuditMaintenance(connection, transaction);
+
+        var rebuiltEvents = new List<AuditEvent>();
+        AuditEvent? previous = null;
+        await using (var command = new NpgsqlCommand(
+                         """
+                         SELECT id, actor, action, target_type, target_id, created_at_utc, outcome, detail
+                         FROM audit_events
+                         ORDER BY created_at_utc, id
+                         """,
+                         connection,
+                         transaction))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                previous = AuditChain.CreateNext(
+                    previous,
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetFieldValue<DateTimeOffset>(5),
+                    reader.GetString(6),
+                    reader.GetString(7));
+                rebuiltEvents.Add(previous);
+            }
+        }
+
+        foreach (var auditEvent in rebuiltEvents)
+        {
+            await using var update = new NpgsqlCommand(
+                """
+                UPDATE audit_events
+                SET sequence_number = @sequence_number,
+                    previous_event_hash = @previous_event_hash,
+                    event_hash = @event_hash
+                WHERE id = @id
+                """,
+                connection,
+                transaction);
+            update.Parameters.AddWithValue("id", auditEvent.Id);
+            update.Parameters.AddWithValue("sequence_number", auditEvent.Sequence);
+            update.Parameters.AddWithValue("previous_event_hash", (object?)auditEvent.PreviousEventHash ?? DBNull.Value);
+            update.Parameters.AddWithValue("event_hash", auditEvent.EventHash);
+            await update.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        _logger.LogInformation("Backfilled audit chain metadata for {AuditEventCount} audit events.", rebuiltEvents.Count);
     }
 
     private static AdminAccount MapAdmin(NpgsqlDataReader reader) =>

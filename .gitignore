@@ -21,3 +21,4 @@ artifacts/
 .env.local
 .env.*.local
 .secrets/
+audit-exports/

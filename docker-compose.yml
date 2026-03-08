@@ -29,10 +29,16 @@ services:
       SecretManagement__BootstrapAdminPasswordFile: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE:-}
       SecretManagement__BootstrapAdminPasswordHash: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH:-}
       SecretManagement__AllowGeneratedBootstrapAdminPassword: ${OWLP_ALLOW_GENERATED_BOOTSTRAP_ADMIN_PASSWORD:-false}
+      AuditRetention__Enabled: ${OWLP_AUDIT_RETENTION_ENABLED:-true}
+      AuditRetention__RetentionDays: ${OWLP_AUDIT_RETENTION_DAYS:-365}
+      AuditRetention__ExportBatchSize: ${OWLP_AUDIT_EXPORT_BATCH_SIZE:-5000}
+      AuditRetention__CheckIntervalHours: ${OWLP_AUDIT_RETENTION_CHECK_INTERVAL_HOURS:-24}
+      AuditRetention__ExportDirectory: ${OWLP_AUDIT_EXPORT_DIRECTORY:-/var/lib/owlprotect/audit-exports}
     ports:
       - "${OWLP_CONTROL_PLANE_PORT:-5180}:5180"
     volumes:
       - "${OWLP_SECRET_MOUNT_PATH:-./.secrets}:/run/owlprotect-secrets:ro"
+      - "${OWLP_AUDIT_EXPORT_DIRECTORY:-./audit-exports}:/var/lib/owlprotect/audit-exports"
     depends_on:
       - postgres
       - redis

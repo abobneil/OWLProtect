@@ -337,9 +337,9 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, actor, action, target_type, target_id, created_at_utc, outcome, detail
+            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash
             FROM audit_events
-            ORDER BY created_at_utc DESC
+            ORDER BY sequence_number DESC NULLS LAST, created_at_utc DESC
             """,
             connection);
         using var reader = command.ExecuteReader();
@@ -347,17 +347,77 @@ public sealed partial class PostgresStore
         var events = new List<AuditEvent>();
         while (reader.Read())
         {
-            events.Add(new AuditEvent(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.GetString(4),
-                reader.GetFieldValue<DateTimeOffset>(5),
-                reader.GetString(6),
-                reader.GetString(7)));
+            events.Add(MapAuditEvent(reader));
         }
 
         return events;
     }
+
+    public IReadOnlyList<AuditEvent> ListAuditEventsForExport(DateTimeOffset createdBeforeUtc, int limit)
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var command = new NpgsqlCommand(
+            """
+            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash
+            FROM audit_events
+            WHERE created_at_utc <= @created_before_utc
+            ORDER BY sequence_number
+            LIMIT @limit
+            """,
+            connection);
+        command.Parameters.AddWithValue("created_before_utc", createdBeforeUtc);
+        command.Parameters.AddWithValue("limit", limit);
+        using var reader = command.ExecuteReader();
+
+        var events = new List<AuditEvent>();
+        while (reader.Read())
+        {
+            events.Add(MapAuditEvent(reader));
+        }
+
+        return events;
+    }
+
+    public IReadOnlyList<AuditRetentionCheckpoint> ListAuditRetentionCheckpoints()
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var command = new NpgsqlCommand(
+            """
+            SELECT id, cutoff_utc, exported_at_utc, export_path, removed_through_sequence, removed_through_created_at_utc, removed_through_event_hash, exported_event_count
+            FROM audit_retention_checkpoints
+            ORDER BY exported_at_utc DESC
+            """,
+            connection);
+        using var reader = command.ExecuteReader();
+
+        var checkpoints = new List<AuditRetentionCheckpoint>();
+        while (reader.Read())
+        {
+            checkpoints.Add(new AuditRetentionCheckpoint(
+                reader.GetString(0),
+                reader.GetFieldValue<DateTimeOffset>(1),
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetString(3),
+                reader.GetInt64(4),
+                reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetString(6),
+                reader.GetInt32(7)));
+        }
+
+        return checkpoints;
+    }
+
+    private static AuditEvent MapAuditEvent(NpgsqlDataReader reader) =>
+        new(
+            reader.GetString(0),
+            reader.GetInt64(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetFieldValue<DateTimeOffset>(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.GetString(10));
 }

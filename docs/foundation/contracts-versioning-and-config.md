@@ -49,6 +49,11 @@ There are two configuration layers in this repository:
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE` | `SecretManagement__BootstrapAdminPasswordFile` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH` | `SecretManagement__BootstrapAdminPasswordHash` | `control-plane-api` |
 | `OWLP_ALLOW_GENERATED_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__AllowGeneratedBootstrapAdminPassword` | `control-plane-api` |
+| `OWLP_AUDIT_RETENTION_ENABLED` | `AuditRetention__Enabled` | `control-plane-api` |
+| `OWLP_AUDIT_RETENTION_DAYS` | `AuditRetention__RetentionDays` | `control-plane-api` |
+| `OWLP_AUDIT_EXPORT_BATCH_SIZE` | `AuditRetention__ExportBatchSize` | `control-plane-api` |
+| `OWLP_AUDIT_RETENTION_CHECK_INTERVAL_HOURS` | `AuditRetention__CheckIntervalHours` | `control-plane-api` |
+| `OWLP_AUDIT_EXPORT_DIRECTORY` | `AuditRetention__ExportDirectory` | `control-plane-api` |
 | `OWLP_GATEWAY_ID` | `Gateway__Id` | `gateway` |
 | `OWLP_GATEWAY_NAME` | `Gateway__Name` | `gateway` |
 | `OWLP_GATEWAY_REGION` | `Gateway__Region` | `gateway` |

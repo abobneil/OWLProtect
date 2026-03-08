@@ -267,12 +267,13 @@ public sealed partial class PostgresStore
     {
         await using var command = new NpgsqlCommand(
             """
-            INSERT INTO audit_events (id, actor, action, target_type, target_id, created_at_utc, outcome, detail)
-            VALUES (@id, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail)
+            INSERT INTO audit_events (id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash)
+            VALUES (@id, @sequence_number, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail, @previous_event_hash, @event_hash)
             """,
             connection,
             transaction);
         command.Parameters.AddWithValue("id", auditEvent.Id);
+        command.Parameters.AddWithValue("sequence_number", auditEvent.Sequence);
         command.Parameters.AddWithValue("actor", auditEvent.Actor);
         command.Parameters.AddWithValue("action", auditEvent.Action);
         command.Parameters.AddWithValue("target_type", auditEvent.TargetType);
@@ -280,6 +281,8 @@ public sealed partial class PostgresStore
         command.Parameters.AddWithValue("created_at_utc", auditEvent.CreatedAtUtc);
         command.Parameters.AddWithValue("outcome", auditEvent.Outcome);
         command.Parameters.AddWithValue("detail", auditEvent.Detail);
+        command.Parameters.AddWithValue("previous_event_hash", (object?)auditEvent.PreviousEventHash ?? DBNull.Value);
+        command.Parameters.AddWithValue("event_hash", auditEvent.EventHash);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 }
