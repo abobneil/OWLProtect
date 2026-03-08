@@ -19,6 +19,8 @@ public interface IDashboardQueryService
 public interface IAdminRepository
 {
     IReadOnlyList<AdminAccount> ListAdmins();
+    AdminAccount UpsertAdmin(AdminAccount admin, string actor);
+    bool DeleteAdmin(string adminId, string actor);
 }
 
 public interface IUserRepository

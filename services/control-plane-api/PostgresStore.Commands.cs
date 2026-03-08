@@ -213,6 +213,71 @@ public sealed partial class PostgresStore
         return updated;
     }
 
+    public AdminAccount UpsertAdmin(AdminAccount admin, string actor)
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        using var command = new NpgsqlCommand(
+            """
+            INSERT INTO admins (id, username, password_hash, role, must_change_password, mfa_enrolled, updated_at_utc)
+            VALUES (@id, @username, @password_hash, @role, @must_change_password, @mfa_enrolled, NOW())
+            ON CONFLICT (id) DO UPDATE
+            SET username = EXCLUDED.username,
+                password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role,
+                must_change_password = EXCLUDED.must_change_password,
+                mfa_enrolled = EXCLUDED.mfa_enrolled,
+                updated_at_utc = NOW()
+            RETURNING id, username, password_hash, role, must_change_password, mfa_enrolled
+            """,
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("id", admin.Id);
+        command.Parameters.AddWithValue("username", admin.Username);
+        command.Parameters.AddWithValue("password_hash", admin.Password);
+        command.Parameters.AddWithValue("role", admin.Role.ToString());
+        command.Parameters.AddWithValue("must_change_password", admin.MustChangePassword);
+        command.Parameters.AddWithValue("mfa_enrolled", admin.MfaEnrolled);
+
+        using var reader = command.ExecuteReader();
+        reader.Read();
+        var updated = MapAdmin(reader);
+        reader.Close();
+
+        AddAudit(connection, transaction, actor, "upsert-admin", "admin", updated.Id, "success", "Admin record created or updated.");
+        transaction.Commit();
+        return updated;
+    }
+
+    public bool DeleteAdmin(string adminId, string actor)
+    {
+        if (string.Equals(adminId, GetBootstrapAdminId(), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Bootstrap admin cannot be deleted.");
+        }
+
+        using var connection = _dataSource.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        using var command = new NpgsqlCommand(
+            """
+            DELETE FROM admins
+            WHERE id = @id
+            """,
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("id", adminId);
+        var deleted = command.ExecuteNonQuery() > 0;
+        if (deleted)
+        {
+            AddAudit(connection, transaction, actor, "delete-admin", "admin", adminId, "success", "Admin record deleted.");
+        }
+
+        transaction.Commit();
+        return deleted;
+    }
+
     public void DeleteUser(string userId)
     {
         using var connection = _dataSource.OpenConnection();
@@ -461,6 +526,27 @@ public sealed partial class PostgresStore
         }
 
         return reader.GetBoolean(1) && !reader.GetBoolean(0) && stepUpSatisfied;
+    }
+
+    private string GetBootstrapAdminId()
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var command = new NpgsqlCommand(
+            """
+            SELECT id
+            FROM admins
+            WHERE username = @username
+            LIMIT 1
+            """,
+            connection);
+        command.Parameters.AddWithValue("username", BootstrapAdminUsername);
+        var adminId = command.ExecuteScalar() as string;
+        if (string.IsNullOrWhiteSpace(adminId))
+        {
+            throw new InvalidOperationException("Bootstrap admin account was not found.");
+        }
+
+        return adminId;
     }
 
     public void DeleteGateway(string gatewayId)

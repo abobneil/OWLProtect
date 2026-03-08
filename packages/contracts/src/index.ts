@@ -201,6 +201,12 @@ export interface ApiErrorResponse {
   policy?: string | null;
 }
 
+export interface ValidationErrorResponse {
+  error: string;
+  errorCode: string;
+  details: string[];
+}
+
 export interface DashboardSnapshot {
   admins: AdminAccount[];
   users: User[];

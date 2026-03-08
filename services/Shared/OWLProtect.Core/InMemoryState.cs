@@ -21,6 +21,7 @@ public sealed class InMemoryState :
 {
     private readonly Lock _gate = new();
     private AdminAccount _defaultAdmin;
+    private readonly List<AdminAccount> _admins = [];
     private DateTimeOffset? _testUserEnabledAtUtc;
 
     private readonly List<User> _users = [.. SeedData.Users];
@@ -38,6 +39,7 @@ public sealed class InMemoryState :
     public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
     {
         _defaultAdmin = SeedData.CreateDefaultAdmin(bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials());
+        _admins.Add(_defaultAdmin);
     }
 
     public DashboardSnapshot Snapshot()
@@ -45,7 +47,7 @@ public sealed class InMemoryState :
         lock (_gate)
         {
             return new DashboardSnapshot(
-                [_defaultAdmin],
+                [.. _admins.OrderBy(item => item.Username, StringComparer.OrdinalIgnoreCase)],
                 [.. _users],
                 [.. _devices],
                 [.. _gateways],
@@ -123,6 +125,7 @@ public sealed class InMemoryState :
                 Password = PasswordProtector.Hash(newPassword),
                 MustChangePassword = false
             };
+            SyncBootstrapAdmin();
 
             AddAudit("admin", "password-change", "admin", _defaultAdmin.Id, "success", "Bootstrap admin password changed.");
             return _defaultAdmin;
@@ -134,8 +137,52 @@ public sealed class InMemoryState :
         lock (_gate)
         {
             _defaultAdmin = _defaultAdmin with { MfaEnrolled = true };
+            SyncBootstrapAdmin();
             AddAudit("admin", "mfa-enroll", "admin", _defaultAdmin.Id, "success", "Bootstrap admin enrolled MFA.");
             return _defaultAdmin;
+        }
+    }
+
+    public AdminAccount UpsertAdmin(AdminAccount admin, string actor)
+    {
+        lock (_gate)
+        {
+            var index = _admins.FindIndex(item => item.Id == admin.Id);
+            if (index >= 0)
+            {
+                _admins[index] = admin;
+            }
+            else
+            {
+                _admins.Add(admin);
+            }
+
+            if (admin.Id == _defaultAdmin.Id)
+            {
+                _defaultAdmin = admin;
+            }
+
+            AddAudit(actor, "upsert-admin", "admin", admin.Id, "success", "Admin record created or updated.");
+            return admin;
+        }
+    }
+
+    public bool DeleteAdmin(string adminId, string actor)
+    {
+        lock (_gate)
+        {
+            if (adminId == _defaultAdmin.Id)
+            {
+                throw new InvalidOperationException("Bootstrap admin cannot be deleted.");
+            }
+
+            var removed = _admins.RemoveAll(admin => admin.Id == adminId) > 0;
+            if (removed)
+            {
+                AddAudit(actor, "delete-admin", "admin", adminId, "success", "Admin record deleted.");
+            }
+
+            return removed;
         }
     }
 
@@ -373,7 +420,7 @@ public sealed class InMemoryState :
     {
         lock (_gate)
         {
-            return [_defaultAdmin];
+            return [.. _admins.OrderBy(item => item.Username, StringComparer.OrdinalIgnoreCase)];
         }
     }
 
@@ -555,6 +602,19 @@ public sealed class InMemoryState :
             DateTimeOffset.UtcNow,
             outcome,
             detail));
+    }
+
+    private void SyncBootstrapAdmin()
+    {
+        var index = _admins.FindIndex(item => item.Id == _defaultAdmin.Id);
+        if (index >= 0)
+        {
+            _admins[index] = _defaultAdmin;
+        }
+        else
+        {
+            _admins.Add(_defaultAdmin);
+        }
     }
 }
 
