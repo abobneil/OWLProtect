@@ -128,7 +128,7 @@ app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
         if (existingUser is not null && !existingUser.Enabled)
         {
             auditWriter.WriteAudit(result.Username, "provider-login", "user", existingUser.Id, "failure", $"External identity login was rejected because user '{existingUser.Id}' is disabled.");
-            return Results.StatusCode(StatusCodes.Status403Forbidden);
+            return Results.Json(new ApiErrorResponse("User is disabled.", "user_disabled"), statusCode: StatusCodes.Status403Forbidden);
         }
 
         var provisionedUser = userRepository.UpsertUser(
@@ -183,7 +183,8 @@ sessionGroup.MapPost("/auth/session/revoke", (HttpContext context, IPlatformSess
 });
 
 var userSessionGroup = app.MapGroup(string.Empty);
-userSessionGroup.AddEndpointFilterFactory(ControlPlaneSecurity.RequireUser);
+userSessionGroup.AddEndpointFilterFactory((factoryContext, next) =>
+    ControlPlaneSecurity.RequireUser(factoryContext, next, "user.session.issue-client"));
 userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSessionIssueRequest request, IDeviceRepository deviceRepository, IPlatformSessionStore sessionStore) =>
 {
     var identity = ControlPlaneSecurity.GetIdentity(context)!;
@@ -198,7 +199,7 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
     {
         context.RequestServices.GetRequiredService<IAuditWriter>()
             .WriteAudit(identity.Actor, "client-session-issue", "device", request.DeviceId, "failure", "User attempted to issue a client session for a device they do not own.");
-        return Results.StatusCode(StatusCodes.Status403Forbidden);
+        return Results.Json(new ApiErrorResponse("Device does not belong to the authenticated user.", "device_ownership_required"), statusCode: StatusCodes.Status403Forbidden);
     }
 
     if (!device.Managed)
@@ -222,7 +223,7 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
 
 var bootstrapAdminGroup = app.MapGroup(string.Empty);
 bootstrapAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
-    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.SuperAdmin, requireCompliantAdmin: false, requireStepUp: false));
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.bootstrap.manage", AdminRole.SuperAdmin, requireCompliantAdmin: false, requireStepUp: false));
 bootstrapAdminGroup.MapPost("/admins/default/password", (HttpContext context, PasswordChangeRequest request, IBootstrapService bootstrapService) =>
 {
     try
@@ -238,7 +239,7 @@ bootstrapAdminGroup.MapPost("/admins/default/mfa", (IBootstrapService bootstrapS
 
 var compliantAdminGroup = app.MapGroup(string.Empty);
 compliantAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
-    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.ReadOnly, requireCompliantAdmin: true, requireStepUp: false));
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.read", AdminRole.ReadOnly, requireCompliantAdmin: true, requireStepUp: false));
 compliantAdminGroup.MapPost("/auth/step-up", (HttpContext context, StepUpRequest request, IAdminRepository adminRepository, IPlatformSessionStore sessionStore) =>
 {
     var identity = ControlPlaneSecurity.GetIdentity(context)!;
@@ -393,7 +394,7 @@ compliantAdminGroup.MapGet("/audit/export", (IAuditRepository auditRepository, D
 
 var operatorAdminGroup = app.MapGroup(string.Empty);
 operatorAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
-    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: false));
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.operator.write", AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: false));
 operatorAdminGroup.MapPost("/users", (HttpContext context, User user, IUserRepository userRepository) =>
 {
     var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
@@ -436,7 +437,7 @@ operatorAdminGroup.MapPost("/sessions", (TunnelSession session, ISessionReposito
 
 var privilegedAdminGroup = app.MapGroup(string.Empty);
 privilegedAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
-    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: true));
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.privileged.write", AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: true));
 privilegedAdminGroup.MapPost("/users/{userId}/disable", (HttpContext context, string userId, IUserRepository userRepository, IPlatformSessionStore platformSessionStore) =>
 {
     try
@@ -502,11 +503,11 @@ privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionServic
 // Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
 app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
 
-MapSocket<IDashboardQueryService, DashboardSnapshot>(app, "/ws/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly);
-MapSocket<IAlertRepository, IReadOnlyList<Alert>>(app, "/ws/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly);
-MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(app, "/ws/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly);
-MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(app, "/ws/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly);
-MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(app, "/ws/client-session", service => service.ListSessions(), AdminRole.ReadOnly);
+MapSocket<IDashboardQueryService, DashboardSnapshot>(app, "/ws/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly, "ws.dashboard.read");
+MapSocket<IAlertRepository, IReadOnlyList<Alert>>(app, "/ws/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
+MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(app, "/ws/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");
+MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(app, "/ws/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly, "ws.health.read");
+MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(app, "/ws/client-session", service => service.ListSessions(), AdminRole.ReadOnly, "ws.sessions.read");
 
 app.Run();
 
@@ -537,27 +538,17 @@ static void MapSocket<TService, TPayload>(
     WebApplication app,
     string path,
     Func<TService, TPayload> payloadFactory,
-    AdminRole minimumRole)
+    AdminRole minimumRole,
+    string policyName)
     where TService : notnull
 {
     app.Map(path, async (HttpContext context, TService service) =>
     {
-        var identity = ControlPlaneSecurity.GetIdentity(context);
-        if (identity?.Admin is null)
+        var requirement = ControlPlaneAuthorizationPolicies.Admin(policyName, minimumRole, requireCompliantAdmin: true, requireStepUp: false);
+        if (!ControlPlaneSecurity.TryAuthorize(context, requirement, out var failure))
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return;
-        }
-
-        if (identity.Admin.MustChangePassword || !identity.Admin.MfaEnrolled)
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-
-        if (minimumRole == AdminRole.Operator && identity.Admin.Role == AdminRole.ReadOnly)
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            var denied = ControlPlaneSecurity.BuildDeniedResult(context, requirement, failure!);
+            await denied.ExecuteAsync(context);
             return;
         }
 

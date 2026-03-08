@@ -13,5 +13,6 @@ public sealed record ClientSessionIssueRequest(string DeviceId);
 public sealed record SessionTokenPair(string AccessToken, DateTimeOffset AccessTokenExpiresAtUtc, string RefreshToken, DateTimeOffset RefreshTokenExpiresAtUtc);
 public sealed record AuthSessionResponse(PlatformSession Session, SessionTokenPair Tokens, AdminAccount? Admin, User? User);
 public sealed record ClientAuthSessionResponse(PlatformSession Session, SessionTokenPair Tokens, User User, Device Device);
+public sealed record ApiErrorResponse(string Error, string ErrorCode, string? Policy = null);
 public sealed record AuditExportResponse(DateTimeOffset GeneratedAtUtc, DateTimeOffset? CutoffUtc, int EventCount, IReadOnlyList<AuditEvent> Events);
 public sealed record AuditRetentionRunResponse(int ExportedEventCount, AuditRetentionCheckpoint? Checkpoint);

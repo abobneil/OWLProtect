@@ -195,6 +195,12 @@ export interface AuthSessionResponse {
   user: User | null;
 }
 
+export interface ApiErrorResponse {
+  error: string;
+  errorCode: string;
+  policy?: string | null;
+}
+
 export interface DashboardSnapshot {
   admins: AdminAccount[];
   users: User[];
