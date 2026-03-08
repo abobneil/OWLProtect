@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS auth_providers (
     mfa_claim_paths TEXT[] NOT NULL DEFAULT '{}',
     require_mfa BOOLEAN NOT NULL DEFAULT TRUE,
     silent_sso_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS auth_providers (
 ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS username_claim_paths TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS group_claim_paths TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS require_mfa BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -58,10 +60,12 @@ CREATE TABLE IF NOT EXISTS users (
     provider_type TEXT NOT NULL,
     group_ids TEXT[] NOT NULL DEFAULT '{}',
     policy_ids TEXT[] NOT NULL DEFAULT '{}',
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
     enabled_at_utc TIMESTAMPTZ NULL,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
@@ -74,16 +78,38 @@ CREATE TABLE IF NOT EXISTS devices (
     compliant BOOLEAN NOT NULL DEFAULT FALSE,
     posture_score INTEGER NOT NULL,
     connection_state TEXT NOT NULL,
-    last_seen_utc TIMESTAMPTZ NOT NULL
+    last_seen_utc TIMESTAMPTZ NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
+    registration_state TEXT NOT NULL DEFAULT 'Pending',
+    enrollment_kind TEXT NOT NULL DEFAULT 'Bootstrap',
+    hardware_key TEXT NOT NULL DEFAULT '',
+    serial_number TEXT NOT NULL DEFAULT '',
+    operating_system TEXT NOT NULL DEFAULT '',
+    registered_at_utc TIMESTAMPTZ NULL,
+    last_enrollment_at_utc TIMESTAMPTZ NULL,
+    disabled_at_utc TIMESTAMPTZ NULL,
+    compliance_reasons TEXT[] NOT NULL DEFAULT '{}'
 );
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS registration_state TEXT NOT NULL DEFAULT 'Pending';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS enrollment_kind TEXT NOT NULL DEFAULT 'Bootstrap';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS hardware_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS serial_number TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS operating_system TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_at_utc TIMESTAMPTZ NULL;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_enrollment_at_utc TIMESTAMPTZ NULL;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS disabled_at_utc TIMESTAMPTZ NULL;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS compliance_reasons TEXT[] NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS gateway_pools (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     regions TEXT[] NOT NULL DEFAULT '{}',
     gateway_ids TEXT[] NOT NULL DEFAULT '{}',
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE gateway_pools ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS gateways (
     id TEXT PRIMARY KEY,
@@ -95,8 +121,10 @@ CREATE TABLE IF NOT EXISTS gateways (
     cpu_percent INTEGER NOT NULL,
     memory_percent INTEGER NOT NULL,
     latency_ms INTEGER NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
     last_heartbeat_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE gateways ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS machine_trust_materials (
     id TEXT PRIMARY KEY,
@@ -126,9 +154,23 @@ CREATE TABLE IF NOT EXISTS policies (
     dns_zones TEXT[] NOT NULL DEFAULT '{}',
     ports INTEGER[] NOT NULL DEFAULT '{}',
     mode TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
+    priority INTEGER NOT NULL DEFAULT 100,
+    target_group_ids TEXT[] NOT NULL DEFAULT '{}',
+    require_managed BOOLEAN NOT NULL DEFAULT TRUE,
+    require_compliant BOOLEAN NOT NULL DEFAULT TRUE,
+    minimum_posture_score INTEGER NOT NULL DEFAULT 80,
+    allowed_registration_states TEXT[] NOT NULL DEFAULT '{}',
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS target_group_ids TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS require_managed BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS require_compliant BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS minimum_posture_score INTEGER NOT NULL DEFAULT 80;
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS allowed_registration_states TEXT[] NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS user_sessions (
     id TEXT PRIMARY KEY,
@@ -138,8 +180,16 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     connected_at_utc TIMESTAMPTZ NOT NULL,
     handshake_age_seconds INTEGER NOT NULL,
     throughput_mbps INTEGER NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default',
+    policy_bundle_version TEXT NULL,
+    authorized_at_utc TIMESTAMPTZ NULL,
+    revalidate_after_utc TIMESTAMPTZ NULL,
     revoked_at_utc TIMESTAMPTZ NULL
 );
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS policy_bundle_version TEXT NULL;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS authorized_at_utc TIMESTAMPTZ NULL;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS revalidate_after_utc TIMESTAMPTZ NULL;
 
 CREATE TABLE IF NOT EXISTS health_samples (
     id TEXT PRIMARY KEY,
@@ -154,8 +204,10 @@ CREATE TABLE IF NOT EXISTS health_samples (
     dns_reachable BOOLEAN NOT NULL,
     route_healthy BOOLEAN NOT NULL,
     sampled_at_utc TIMESTAMPTZ NOT NULL,
-    message TEXT NOT NULL
+    message TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default'
 );
+ALTER TABLE health_samples ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS alerts (
     id TEXT PRIMARY KEY,
@@ -164,8 +216,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     description TEXT NOT NULL,
     target_type TEXT NOT NULL,
     target_id TEXT NOT NULL,
-    created_at_utc TIMESTAMPTZ NOT NULL
+    created_at_utc TIMESTAMPTZ NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default'
 );
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE TABLE IF NOT EXISTS audit_events (
     id TEXT PRIMARY KEY,
@@ -178,12 +232,14 @@ CREATE TABLE IF NOT EXISTS audit_events (
     outcome TEXT NOT NULL,
     detail TEXT NOT NULL,
     previous_event_hash TEXT NULL,
-    event_hash TEXT NULL
+    event_hash TEXT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'tenant-default'
 );
 
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS sequence_number BIGINT NULL;
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS previous_event_hash TEXT NULL;
 ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS event_hash TEXT NULL;
+ALTER TABLE audit_events ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'tenant-default';
 
 CREATE UNIQUE INDEX IF NOT EXISTS ix_audit_events_sequence_number
     ON audit_events (sequence_number)

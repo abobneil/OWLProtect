@@ -16,6 +16,11 @@ public interface IDashboardQueryService
     DashboardSnapshot Snapshot();
 }
 
+public interface ITenantRepository
+{
+    IReadOnlyList<Tenant> ListTenants();
+}
+
 public interface IAdminRepository
 {
     IReadOnlyList<AdminAccount> ListAdmins();
@@ -91,7 +96,7 @@ public interface IAuditRepository
 
 public interface IAuditWriter
 {
-    void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail);
+    void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null);
 }
 
 public interface IAuditRetentionRepository

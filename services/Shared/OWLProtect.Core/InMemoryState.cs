@@ -5,6 +5,7 @@ namespace OWLProtect.Core;
 public sealed class InMemoryState :
     IBootstrapService,
     IDashboardQueryService,
+    ITenantRepository,
     IAdminRepository,
     IUserRepository,
     IDeviceRepository,
@@ -22,28 +23,43 @@ public sealed class InMemoryState :
 {
     private readonly Lock _gate = new();
     private readonly IControlPlaneEventPublisher _eventPublisher;
+    private readonly PlatformBootstrapSettings _bootstrapSettings;
     private AdminAccount _defaultAdmin;
     private readonly List<AdminAccount> _admins = [];
     private DateTimeOffset? _testUserEnabledAtUtc;
 
-    private readonly List<User> _users = [.. SeedData.Users];
-    private readonly List<Device> _devices = [.. SeedData.Devices];
-    private readonly List<Gateway> _gateways = [.. SeedData.Gateways];
-    private readonly List<GatewayPool> _gatewayPools = [.. SeedData.GatewayPools];
-    private readonly List<PolicyRule> _policies = [.. SeedData.Policies];
-    private readonly List<TunnelSession> _sessions = [.. SeedData.Sessions];
-    private readonly List<HealthSample> _healthSamples = [.. SeedData.HealthSamples];
-    private readonly List<Alert> _alerts = [.. SeedData.Alerts];
-    private readonly List<AuthProviderConfig> _authProviders = [.. SeedData.AuthProviders];
-    private readonly List<AuditEvent> _auditEvents = [.. SeedData.AuditEvents];
+    private readonly List<Tenant> _tenants;
+    private readonly List<User> _users;
+    private readonly List<Device> _devices;
+    private readonly List<Gateway> _gateways;
+    private readonly List<GatewayPool> _gatewayPools;
+    private readonly List<PolicyRule> _policies;
+    private readonly List<TunnelSession> _sessions;
+    private readonly List<HealthSample> _healthSamples;
+    private readonly List<Alert> _alerts;
+    private readonly List<AuthProviderConfig> _authProviders;
+    private readonly List<AuditEvent> _auditEvents;
     private readonly List<AuditRetentionCheckpoint> _auditRetentionCheckpoints = [];
     private readonly List<MachineTrustMaterial> _trustMaterials = [];
 
-    public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider, IControlPlaneEventPublisher eventPublisher)
+    public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider, IControlPlaneEventPublisher eventPublisher, IPlatformBootstrapSettingsProvider bootstrapSettingsProvider)
     {
         _eventPublisher = eventPublisher;
+        _bootstrapSettings = bootstrapSettingsProvider.GetSettings();
+        var seed = SeedData.CreateSeedDataset(_bootstrapSettings);
         _defaultAdmin = SeedData.CreateDefaultAdmin(bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials());
         _admins.Add(_defaultAdmin);
+        _tenants = [seed.DefaultTenant];
+        _users = [.. seed.Users];
+        _devices = [.. seed.Devices];
+        _gateways = [.. seed.Gateways];
+        _gatewayPools = [.. seed.GatewayPools];
+        _policies = [.. seed.Policies];
+        _sessions = [.. seed.Sessions];
+        _healthSamples = [.. seed.HealthSamples];
+        _alerts = [.. seed.Alerts];
+        _authProviders = [.. seed.AuthProviders];
+        _auditEvents = [.. seed.AuditEvents];
     }
 
     public DashboardSnapshot Snapshot()
@@ -206,11 +222,11 @@ public sealed class InMemoryState :
             if (updated.Username == "user")
             {
                 _testUserEnabledAtUtc = DateTimeOffset.UtcNow;
-                AddAlert(HealthSeverity.Yellow, "Test account enabled", "The seeded test account was enabled and will be auto-disabled within one hour.", "user", updated.Id);
+                AddAlert(HealthSeverity.Yellow, "Test account enabled", "The seeded test account was enabled and will be auto-disabled within one hour.", "user", updated.Id, updated.TenantId);
                 _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created");
             }
 
-            AddAudit(actor, "enable-user", "user", updated.Id, "success", "User enabled.");
+            AddAudit(actor, "enable-user", "user", updated.Id, "success", "User enabled.", updated.TenantId);
             return updated;
         }
     }
@@ -243,11 +259,11 @@ public sealed class InMemoryState :
             if (updated.Username == "user")
             {
                 _testUserEnabledAtUtc = null;
-                AddAlert(HealthSeverity.Red, "Test account auto-disabled", "The seeded test account was disabled and all active sessions were revoked.", "user", updated.Id);
+                AddAlert(HealthSeverity.Red, "Test account auto-disabled", "The seeded test account was disabled and all active sessions were revoked.", "user", updated.Id, updated.TenantId);
                 _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created");
             }
 
-            AddAudit(actor, "disable-user", "user", updated.Id, "success", reason);
+            AddAudit(actor, "disable-user", "user", updated.Id, "success", reason, updated.TenantId);
             _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "revoked-subject", updated.Id);
             return updated;
         }
@@ -267,7 +283,7 @@ public sealed class InMemoryState :
                 _gateways.Add(gateway);
             }
 
-            AddAudit("gateway", "heartbeat", "gateway", gateway.Id, "success", $"Gateway {gateway.Name} reported health {gateway.Health}.");
+            AddAudit("gateway", "heartbeat", "gateway", gateway.Id, "success", $"Gateway {gateway.Name} reported health {gateway.Health}.", gateway.TenantId);
             _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "upserted", gateway.Id);
             return gateway;
         }
@@ -310,7 +326,7 @@ public sealed class InMemoryState :
                 _users.Add(user);
             }
 
-            AddAudit(actor, "upsert-user", "user", user.Id, "success", "User record created or updated.");
+            AddAudit(actor, "upsert-user", "user", user.Id, "success", "User record created or updated.", user.TenantId);
             return user;
         }
     }
@@ -340,7 +356,7 @@ public sealed class InMemoryState :
                 _devices.Add(device);
             }
 
-            AddAudit("admin", "upsert-device", "device", device.Id, "success", "Device record created or updated.");
+            AddAudit("admin", "upsert-device", "device", device.Id, "success", "Device record created or updated.", device.TenantId);
             return device;
         }
     }
@@ -384,7 +400,7 @@ public sealed class InMemoryState :
                 _policies.Add(policy);
             }
 
-            AddAudit("admin", "upsert-policy", "policy", policy.Id, "success", "Policy record created or updated.");
+            AddAudit("admin", "upsert-policy", "policy", policy.Id, "success", "Policy record created or updated.", policy.TenantId);
             return policy;
         }
     }
@@ -412,7 +428,7 @@ public sealed class InMemoryState :
                 _sessions.Add(session);
             }
 
-            AddAudit("admin", "upsert-session", "session", session.Id, "success", "Session record created or updated.");
+            AddAudit("admin", "upsert-session", "session", session.Id, "success", "Session record created or updated.", session.TenantId);
             _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "upserted", session.Id);
             return session;
         }
@@ -430,6 +446,14 @@ public sealed class InMemoryState :
             }
 
             return removed;
+        }
+    }
+
+    public IReadOnlyList<Tenant> ListTenants()
+    {
+        lock (_gate)
+        {
+            return [.. _tenants];
         }
     }
 
@@ -540,11 +564,11 @@ public sealed class InMemoryState :
         }
     }
 
-    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
+    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null)
     {
         lock (_gate)
         {
-            AddAudit(actor, action, targetType, targetId, outcome, detail);
+            AddAudit(actor, action, targetType, targetId, outcome, detail, tenantId);
         }
     }
 
@@ -698,7 +722,7 @@ public sealed class InMemoryState :
         }
     }
 
-    private Alert AddAlert(HealthSeverity severity, string title, string description, string targetType, string targetId)
+    private Alert AddAlert(HealthSeverity severity, string title, string description, string targetType, string targetId, string? tenantId = null)
     {
         var alert = new Alert(
             Guid.NewGuid().ToString("n"),
@@ -707,12 +731,13 @@ public sealed class InMemoryState :
             description,
             targetType,
             targetId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            tenantId ?? _bootstrapSettings.DefaultTenantId);
         _alerts.Add(alert);
         return alert;
     }
 
-    private void AddAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
+    private void AddAudit(string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null)
     {
         _auditEvents.Add(AuditChain.CreateNext(
             _auditEvents.LastOrDefault(),
@@ -723,7 +748,8 @@ public sealed class InMemoryState :
             targetId,
             DateTimeOffset.UtcNow,
             outcome,
-            detail));
+            detail,
+            tenantId ?? _bootstrapSettings.DefaultTenantId));
     }
 
     private void SyncBootstrapAdmin()
@@ -742,6 +768,7 @@ public sealed class InMemoryState :
 
 [JsonSerializable(typeof(AdminAccount))]
 [JsonSerializable(typeof(User))]
+[JsonSerializable(typeof(Tenant))]
 [JsonSerializable(typeof(Gateway))]
 [JsonSerializable(typeof(DashboardSnapshot))]
 [JsonSerializable(typeof(BootstrapStatus))]
@@ -749,6 +776,7 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(List<Alert>))]
 [JsonSerializable(typeof(List<Gateway>))]
 [JsonSerializable(typeof(List<Device>))]
+[JsonSerializable(typeof(List<Tenant>))]
 [JsonSerializable(typeof(List<TunnelSession>))]
 [JsonSerializable(typeof(List<PolicyRule>))]
 [JsonSerializable(typeof(List<AuthProviderConfig>))]
@@ -759,4 +787,8 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(MachineTrustMaterial))]
 [JsonSerializable(typeof(List<MachineTrustMaterial>))]
 [JsonSerializable(typeof(IssuedMachineTrustMaterial))]
+[JsonSerializable(typeof(PolicyResolutionResult))]
+[JsonSerializable(typeof(ResolvedPolicyBundle))]
+[JsonSerializable(typeof(SessionAuthorizationDecision))]
+[JsonSerializable(typeof(DeviceEnrollmentResult))]
 public partial class OwlProtectJsonContext : JsonSerializerContext;

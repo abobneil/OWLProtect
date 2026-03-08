@@ -1,6 +1,8 @@
 export type AdminRole = "SuperAdmin" | "Operator" | "ReadOnly";
 export type PlatformSessionKind = "Admin" | "User" | "Client";
 export type MachineTrustSubjectKind = "Gateway" | "Device";
+export type DeviceRegistrationState = "Pending" | "Enrolled" | "Disabled" | "Revoked";
+export type DeviceEnrollmentKind = "Bootstrap" | "ReEnrollment" | "Recovery" | "Reconciliation";
 export const CONTROL_PLANE_API_VERSION = "v1";
 export const CONTROL_PLANE_API_PREFIX = `/api/${CONTROL_PLANE_API_VERSION}`;
 export const CONTROL_PLANE_SOCKET_PREFIX = `${CONTROL_PLANE_API_PREFIX}/ws`;
@@ -45,6 +47,7 @@ export interface User {
   provider: "local" | "entra" | "oidc";
   groupIds: string[];
   policyIds: string[];
+  tenantId: string;
 }
 
 export interface AdminAccount {
@@ -67,6 +70,16 @@ export interface Device {
   postureScore: number;
   connectionState: ConnectionState;
   lastSeenUtc: string;
+  tenantId: string;
+  registrationState: DeviceRegistrationState;
+  enrollmentKind: DeviceEnrollmentKind;
+  hardwareKey: string;
+  serialNumber: string;
+  operatingSystem: string;
+  registeredAtUtc: string | null;
+  lastEnrollmentAtUtc: string | null;
+  disabledAtUtc: string | null;
+  complianceReasons: string[];
 }
 
 export interface Gateway {
@@ -79,6 +92,7 @@ export interface Gateway {
   cpuPercent: number;
   memoryPercent: number;
   latencyMs: number;
+  tenantId: string;
 }
 
 export interface GatewayPool {
@@ -86,6 +100,7 @@ export interface GatewayPool {
   name: string;
   regions: string[];
   gatewayIds: string[];
+  tenantId: string;
 }
 
 export interface PolicyRule {
@@ -95,6 +110,13 @@ export interface PolicyRule {
   dnsZones: string[];
   ports: number[];
   mode: "split-tunnel";
+  tenantId: string;
+  priority: number;
+  targetGroupIds: string[];
+  requireManaged: boolean;
+  requireCompliant: boolean;
+  minimumPostureScore: number;
+  allowedDeviceStates: DeviceRegistrationState[];
 }
 
 export interface TunnelSession {
@@ -105,6 +127,10 @@ export interface TunnelSession {
   connectedAtUtc: string;
   handshakeAgeSeconds: number;
   throughputMbps: number;
+  tenantId: string;
+  policyBundleVersion: string;
+  authorizedAtUtc: string | null;
+  revalidateAfterUtc: string | null;
 }
 
 export interface HealthSample {
@@ -121,6 +147,7 @@ export interface HealthSample {
   routeHealthy: boolean;
   sampledAtUtc: string;
   message: string;
+  tenantId: string;
 }
 
 export interface Alert {
@@ -131,6 +158,7 @@ export interface Alert {
   targetType: "device" | "gateway" | "policy" | "auth";
   targetId: string;
   createdAtUtc: string;
+  tenantId: string;
 }
 
 export interface PostureReport {
@@ -143,6 +171,9 @@ export interface PostureReport {
   secureBootEnabled: boolean;
   tamperProtectionEnabled: boolean;
   osVersion: string;
+  tenantId: string;
+  schemaVersion: number;
+  collectedAtUtc: string | null;
 }
 
 export interface AuthProviderConfig {
@@ -156,6 +187,7 @@ export interface AuthProviderConfig {
   mfaClaimPaths: string[];
   requireMfa: boolean;
   silentSsoEnabled: boolean;
+  tenantId: string;
 }
 
 export interface AuditEvent {
@@ -170,6 +202,28 @@ export interface AuditEvent {
   detail: string;
   previousEventHash: string | null;
   eventHash: string;
+  tenantId: string;
+}
+
+export interface PolicyResolutionResult {
+  tenantId: string;
+  userId: string;
+  deviceId: string;
+  effectiveGroups: string[];
+  policyIds: string[];
+  decisionLog: string[];
+}
+
+export interface ResolvedPolicyBundle {
+  tenantId: string;
+  userId: string;
+  deviceId: string;
+  version: string;
+  generatedAtUtc: string;
+  policyIds: string[];
+  cidrs: string[];
+  dnsZones: string[];
+  ports: number[];
 }
 
 export interface AuditRetentionCheckpoint {
@@ -283,7 +337,8 @@ export const seededSnapshot: DashboardSnapshot = {
       testAccount: true,
       provider: "local",
       groupIds: ["group-test"],
-      policyIds: ["policy-test"]
+      policyIds: ["policy-test"],
+      tenantId: "tenant-default"
     },
     {
       id: "user-2",
@@ -292,8 +347,9 @@ export const seededSnapshot: DashboardSnapshot = {
       enabled: true,
       testAccount: false,
       provider: "entra",
-      groupIds: ["group-engineering"],
-      policyIds: ["policy-core"]
+      groupIds: ["group-engineering", "entra:eng"],
+      policyIds: ["policy-core"],
+      tenantId: "tenant-default"
     }
   ],
   devices: [
@@ -308,7 +364,17 @@ export const seededSnapshot: DashboardSnapshot = {
       compliant: true,
       postureScore: 96,
       connectionState: "Healthy",
-      lastSeenUtc: "2026-03-07T23:45:00Z"
+      lastSeenUtc: "2026-03-07T23:45:00Z",
+      tenantId: "tenant-default",
+      registrationState: "Enrolled",
+      enrollmentKind: "ReEnrollment",
+      hardwareKey: "hw-mariad-lt-14",
+      serialNumber: "MDLT14-2394",
+      operatingSystem: "Windows 11 24H2",
+      registeredAtUtc: "2026-03-01T15:00:00Z",
+      lastEnrollmentAtUtc: "2026-03-07T22:55:00Z",
+      disabledAtUtc: null,
+      complianceReasons: []
     },
     {
       id: "device-2",
@@ -321,7 +387,17 @@ export const seededSnapshot: DashboardSnapshot = {
       compliant: false,
       postureScore: 58,
       connectionState: "PolicyBlocked",
-      lastSeenUtc: "2026-03-07T23:41:00Z"
+      lastSeenUtc: "2026-03-07T23:41:00Z",
+      tenantId: "tenant-default",
+      registrationState: "Pending",
+      enrollmentKind: "Bootstrap",
+      hardwareKey: "hw-qa-lab-device",
+      serialNumber: "QALAB-9911",
+      operatingSystem: "Windows 11 24H2",
+      registeredAtUtc: "2026-03-07T22:40:00Z",
+      lastEnrollmentAtUtc: "2026-03-07T22:40:00Z",
+      disabledAtUtc: null,
+      complianceReasons: ["firewall_disabled", "device_pending_approval"]
     }
   ],
   gateways: [
@@ -334,7 +410,8 @@ export const seededSnapshot: DashboardSnapshot = {
       peerCount: 124,
       cpuPercent: 38,
       memoryPercent: 54,
-      latencyMs: 18
+      latencyMs: 18,
+      tenantId: "tenant-default"
     },
     {
       id: "gw-2",
@@ -345,7 +422,8 @@ export const seededSnapshot: DashboardSnapshot = {
       peerCount: 140,
       cpuPercent: 70,
       memoryPercent: 68,
-      latencyMs: 42
+      latencyMs: 42,
+      tenantId: "tenant-default"
     }
   ],
   gatewayPools: [
@@ -353,7 +431,8 @@ export const seededSnapshot: DashboardSnapshot = {
       id: "pool-1",
       name: "East Coast Pool",
       regions: ["us-east"],
-      gatewayIds: ["gw-1", "gw-2"]
+      gatewayIds: ["gw-1", "gw-2"],
+      tenantId: "tenant-default"
     }
   ],
   policies: [
@@ -363,7 +442,14 @@ export const seededSnapshot: DashboardSnapshot = {
       cidrs: ["10.10.20.0/24"],
       dnsZones: ["test.owlprotect.local"],
       ports: [443, 8443],
-      mode: "split-tunnel"
+      mode: "split-tunnel",
+      tenantId: "tenant-default",
+      priority: 50,
+      targetGroupIds: ["group-test"],
+      requireManaged: true,
+      requireCompliant: false,
+      minimumPostureScore: 40,
+      allowedDeviceStates: ["Pending", "Enrolled"]
     },
     {
       id: "policy-core",
@@ -371,7 +457,14 @@ export const seededSnapshot: DashboardSnapshot = {
       cidrs: ["10.0.0.0/8", "172.16.20.0/24"],
       dnsZones: ["corp.owlprotect.local", "eng.owlprotect.local"],
       ports: [53, 80, 443, 3389],
-      mode: "split-tunnel"
+      mode: "split-tunnel",
+      tenantId: "tenant-default",
+      priority: 100,
+      targetGroupIds: ["group-engineering", "entra:eng"],
+      requireManaged: true,
+      requireCompliant: true,
+      minimumPostureScore: 80,
+      allowedDeviceStates: ["Enrolled"]
     }
   ],
   sessions: [
@@ -382,7 +475,11 @@ export const seededSnapshot: DashboardSnapshot = {
       gatewayId: "gw-1",
       connectedAtUtc: "2026-03-07T22:59:00Z",
       handshakeAgeSeconds: 21,
-      throughputMbps: 188
+      throughputMbps: 188,
+      tenantId: "tenant-default",
+      policyBundleVersion: "seed-policy-core-v1",
+      authorizedAtUtc: "2026-03-07T22:59:00Z",
+      revalidateAfterUtc: "2026-03-07T23:04:00Z"
     }
   ],
   healthSamples: [
@@ -399,7 +496,8 @@ export const seededSnapshot: DashboardSnapshot = {
       dnsReachable: true,
       routeHealthy: true,
       sampledAtUtc: "2026-03-07T23:45:00Z",
-      message: "Tunnel healthy with low jitter and strong signal."
+      message: "Tunnel healthy with low jitter and strong signal.",
+      tenantId: "tenant-default"
     },
     {
       id: "health-2",
@@ -414,7 +512,8 @@ export const seededSnapshot: DashboardSnapshot = {
       dnsReachable: false,
       routeHealthy: false,
       sampledAtUtc: "2026-03-07T23:41:00Z",
-      message: "Device posture is noncompliant, so enterprise routes remain blocked."
+      message: "Device posture is noncompliant, so enterprise routes remain blocked.",
+      tenantId: "tenant-default"
     }
   ],
   alerts: [
@@ -425,7 +524,8 @@ export const seededSnapshot: DashboardSnapshot = {
       description: "The seeded test user remains disabled until an admin explicitly enables it.",
       targetType: "device",
       targetId: "device-2",
-      createdAtUtc: "2026-03-07T23:00:00Z"
+      createdAtUtc: "2026-03-07T23:00:00Z",
+      tenantId: "tenant-default"
     },
     {
       id: "alert-2",
@@ -434,7 +534,8 @@ export const seededSnapshot: DashboardSnapshot = {
       description: "Gateway us-east-core-2 is above the yellow load threshold.",
       targetType: "gateway",
       targetId: "gw-2",
-      createdAtUtc: "2026-03-07T23:39:00Z"
+      createdAtUtc: "2026-03-07T23:39:00Z",
+      tenantId: "tenant-default"
     }
   ],
   authProviders: [
@@ -448,7 +549,8 @@ export const seededSnapshot: DashboardSnapshot = {
       groupClaimPaths: ["groups"],
       mfaClaimPaths: ["amr", "acr"],
       requireMfa: true,
-      silentSsoEnabled: true
+      silentSsoEnabled: true,
+      tenantId: "tenant-default"
     },
     {
       id: "auth-2",
@@ -460,7 +562,8 @@ export const seededSnapshot: DashboardSnapshot = {
       groupClaimPaths: ["groups"],
       mfaClaimPaths: ["amr"],
       requireMfa: true,
-      silentSsoEnabled: false
+      silentSsoEnabled: false,
+      tenantId: "tenant-default"
     }
   ],
   auditEvents: [
@@ -475,7 +578,8 @@ export const seededSnapshot: DashboardSnapshot = {
       outcome: "success",
       detail: "Seeded default admin with forced password reset.",
       previousEventHash: null,
-      eventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80"
+      eventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80",
+      tenantId: "tenant-default"
     },
     {
       id: "audit-2",
@@ -488,7 +592,8 @@ export const seededSnapshot: DashboardSnapshot = {
       outcome: "success",
       detail: "Seeded disabled test user with restricted default policy.",
       previousEventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80",
-      eventHash: "81c1d5d266f11fa950a49b4130563f9811c0433b1696795ab2bd58b8d085def2"
+      eventHash: "81c1d5d266f11fa950a49b4130563f9811c0433b1696795ab2bd58b8d085def2",
+      tenantId: "tenant-default"
     }
   ]
 };
