@@ -23,3 +23,7 @@ OWLProtect is a Windows-first enterprise VPN platform with:
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local validation commands, pull request expectations, CODEOWNERS review guidance, and the backlog label taxonomy.
 
 See [docs/foundation/contracts-versioning-and-config.md](docs/foundation/contracts-versioning-and-config.md) for the current shared contract, API versioning, and environment configuration conventions.
+
+See [docs/architecture/overview.md](docs/architecture/overview.md) for the current service-boundary overview and [docs/adr](docs/adr) for the accepted architecture decisions.
+
+See [.env.local.example](.env.local.example) and [.env.selfhosted.example](.env.selfhosted.example) for local and self-hosted deployment input examples.

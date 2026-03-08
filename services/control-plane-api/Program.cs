@@ -19,6 +19,18 @@ builder.Services.AddCors(options =>
     });
 });
 builder.Services.AddSingleton<InMemoryState>();
+builder.Services.AddSingleton<IBootstrapService>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IAdminRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IUserRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IDeviceRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IGatewayRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IGatewayPoolRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IPolicyRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<ISessionRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IHealthSampleRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IAlertRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IAuthProviderConfigRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<AuthProviderResolver>();
@@ -29,13 +41,13 @@ app.UseCors();
 app.UseWebSockets();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-app.MapGet("/bootstrap", (InMemoryState state) => Results.Ok(state.GetBootstrapStatus()));
+app.MapGet("/bootstrap", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.GetBootstrapStatus()));
 
-app.MapPost("/auth/admin/login", (AdminLoginRequest request, InMemoryState state) =>
+app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService) =>
 {
     try
     {
-        return Results.Ok(state.LoginAdmin(request.Username, request.Password));
+        return Results.Ok(bootstrapService.LoginAdmin(request.Username, request.Password));
     }
     catch (InvalidOperationException exception)
     {
@@ -43,11 +55,11 @@ app.MapPost("/auth/admin/login", (AdminLoginRequest request, InMemoryState state
     }
 });
 
-app.MapPost("/auth/user/login", (UserLoginRequest request, InMemoryState state) =>
+app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService) =>
 {
     try
     {
-        return Results.Ok(state.LoginUser(request.Username));
+        return Results.Ok(bootstrapService.LoginUser(request.Username));
     }
     catch (InvalidOperationException exception)
     {
@@ -69,37 +81,37 @@ app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
     }
 });
 
-app.MapGet("/admins", (InMemoryState state) => Results.Ok(state.Snapshot().Admins));
-app.MapPost("/admins/default/password", (PasswordChangeRequest request, InMemoryState state) =>
+app.MapGet("/admins", (IAdminRepository adminRepository) => Results.Ok(adminRepository.ListAdmins()));
+app.MapPost("/admins/default/password", (PasswordChangeRequest request, IBootstrapService bootstrapService) =>
 {
     try
     {
-        return Results.Ok(state.UpdateAdminPassword(request.CurrentPassword, request.NewPassword));
+        return Results.Ok(bootstrapService.UpdateAdminPassword(request.CurrentPassword, request.NewPassword));
     }
     catch (InvalidOperationException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
     }
 });
-app.MapPost("/admins/default/mfa", (InMemoryState state) => Results.Ok(state.EnrollAdminMfa()));
+app.MapPost("/admins/default/mfa", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.EnrollAdminMfa()));
 
-app.MapGet("/users", (InMemoryState state) => Results.Ok(state.Snapshot().Users));
-app.MapPost("/users/{userId}/enable", (string userId, InMemoryState state) =>
+app.MapGet("/users", (IUserRepository userRepository) => Results.Ok(userRepository.ListUsers()));
+app.MapPost("/users/{userId}/enable", (string userId, IUserRepository userRepository) =>
 {
     try
     {
-        return Results.Ok(state.EnableUser(userId, "admin"));
+        return Results.Ok(userRepository.EnableUser(userId, "admin"));
     }
     catch (InvalidOperationException exception)
     {
         return Results.BadRequest(new { error = exception.Message });
     }
 });
-app.MapPost("/users/{userId}/disable", (string userId, InMemoryState state) =>
+app.MapPost("/users/{userId}/disable", (string userId, IUserRepository userRepository) =>
 {
     try
     {
-        return Results.Ok(state.DisableUser(userId, "admin", "User disabled by admin."));
+        return Results.Ok(userRepository.DisableUser(userId, "admin", "User disabled by admin."));
     }
     catch (InvalidOperationException exception)
     {
@@ -107,22 +119,22 @@ app.MapPost("/users/{userId}/disable", (string userId, InMemoryState state) =>
     }
 });
 
-app.MapGet("/devices", (InMemoryState state) => Results.Ok(state.Snapshot().Devices));
-app.MapGet("/gateways", (InMemoryState state) => Results.Ok(state.Snapshot().Gateways));
-app.MapPost("/gateways/heartbeat", (Gateway gateway, InMemoryState state) => Results.Ok(state.UpsertGatewayHeartbeat(gateway)));
-app.MapGet("/gateway-pools", (InMemoryState state) => Results.Ok(state.Snapshot().GatewayPools));
-app.MapGet("/policies", (InMemoryState state) => Results.Ok(state.Snapshot().Policies));
-app.MapGet("/sessions", (InMemoryState state) => Results.Ok(state.Snapshot().Sessions));
-app.MapGet("/alerts", (InMemoryState state) => Results.Ok(state.Snapshot().Alerts));
-app.MapGet("/telemetry/query", (InMemoryState state) => Results.Ok(state.Snapshot().HealthSamples));
-app.MapGet("/map/connections", (InMemoryState state) => Results.Ok(state.GetConnectionMap()));
-app.MapGet("/auth/providers", (InMemoryState state) => Results.Ok(state.Snapshot().AuthProviders));
-app.MapGet("/audit", (InMemoryState state) => Results.Ok(state.Snapshot().AuditEvents));
+app.MapGet("/devices", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.ListDevices()));
+app.MapGet("/gateways", (IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.ListGateways()));
+app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
+app.MapGet("/gateway-pools", (IGatewayPoolRepository gatewayPoolRepository) => Results.Ok(gatewayPoolRepository.ListGatewayPools()));
+app.MapGet("/policies", (IPolicyRepository policyRepository) => Results.Ok(policyRepository.ListPolicies()));
+app.MapGet("/sessions", (ISessionRepository sessionRepository) => Results.Ok(sessionRepository.ListSessions()));
+app.MapGet("/alerts", (IAlertRepository alertRepository) => Results.Ok(alertRepository.ListAlerts()));
+app.MapGet("/telemetry/query", (IHealthSampleRepository healthSampleRepository) => Results.Ok(healthSampleRepository.ListHealthSamples()));
+app.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
+app.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
+app.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
 
-app.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequest request, InMemoryState state) =>
+app.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequest request, IBootstrapService bootstrapService) =>
 {
     var stepUpSatisfied = string.Equals(context.Request.Headers["X-Step-Up"], "approved", StringComparison.OrdinalIgnoreCase);
-    if (!state.ValidatePrivilegedOperation(stepUpSatisfied))
+    if (!bootstrapService.ValidatePrivilegedOperation(stepUpSatisfied))
     {
         return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
     }
@@ -135,10 +147,10 @@ app.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequ
 });
 
 MapSocket(app, "/ws/admin-dashboard", state => state.Snapshot());
-MapSocket(app, "/ws/alert-stream", state => state.Snapshot().Alerts);
-MapSocket(app, "/ws/gateway-health", state => state.Snapshot().Gateways);
-MapSocket(app, "/ws/client-health", state => state.Snapshot().HealthSamples);
-MapSocket(app, "/ws/client-session", state => state.Snapshot().Sessions);
+MapSocket(app, "/ws/alert-stream", state => state.ListAlerts());
+MapSocket(app, "/ws/gateway-health", state => state.ListGateways());
+MapSocket(app, "/ws/client-health", state => state.ListHealthSamples());
+MapSocket(app, "/ws/client-session", state => state.ListSessions());
 
 app.Run();
 

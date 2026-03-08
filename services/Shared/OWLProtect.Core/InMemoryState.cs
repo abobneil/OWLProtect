@@ -2,7 +2,19 @@ using System.Text.Json.Serialization;
 
 namespace OWLProtect.Core;
 
-public sealed class InMemoryState
+public sealed class InMemoryState :
+    IBootstrapService,
+    IAdminRepository,
+    IUserRepository,
+    IDeviceRepository,
+    IGatewayRepository,
+    IGatewayPoolRepository,
+    IPolicyRepository,
+    ISessionRepository,
+    IHealthSampleRepository,
+    IAlertRepository,
+    IAuthProviderConfigRepository,
+    IAuditRepository
 {
     private readonly Lock _gate = new();
     private AdminAccount _defaultAdmin = SeedData.DefaultAdmin;
@@ -218,6 +230,94 @@ public sealed class InMemoryState
             device.PublicIp,
             device.ConnectionState)).ToArray();
 
+    public IReadOnlyList<AdminAccount> ListAdmins()
+    {
+        lock (_gate)
+        {
+            return [_defaultAdmin];
+        }
+    }
+
+    public IReadOnlyList<User> ListUsers()
+    {
+        lock (_gate)
+        {
+            return [.. _users];
+        }
+    }
+
+    public IReadOnlyList<Device> ListDevices()
+    {
+        lock (_gate)
+        {
+            return [.. _devices];
+        }
+    }
+
+    public IReadOnlyList<Gateway> ListGateways()
+    {
+        lock (_gate)
+        {
+            return [.. _gateways];
+        }
+    }
+
+    public IReadOnlyList<GatewayPool> ListGatewayPools()
+    {
+        lock (_gate)
+        {
+            return [.. _gatewayPools];
+        }
+    }
+
+    public IReadOnlyList<PolicyRule> ListPolicies()
+    {
+        lock (_gate)
+        {
+            return [.. _policies];
+        }
+    }
+
+    public IReadOnlyList<TunnelSession> ListSessions()
+    {
+        lock (_gate)
+        {
+            return [.. _sessions];
+        }
+    }
+
+    public IReadOnlyList<HealthSample> ListHealthSamples()
+    {
+        lock (_gate)
+        {
+            return [.. _healthSamples.OrderByDescending(sample => sample.SampledAtUtc)];
+        }
+    }
+
+    public IReadOnlyList<Alert> ListAlerts()
+    {
+        lock (_gate)
+        {
+            return [.. _alerts.OrderByDescending(alert => alert.CreatedAtUtc)];
+        }
+    }
+
+    public IReadOnlyList<AuthProviderConfig> ListAuthProviders()
+    {
+        lock (_gate)
+        {
+            return [.. _authProviders];
+        }
+    }
+
+    public IReadOnlyList<AuditEvent> ListAuditEvents()
+    {
+        lock (_gate)
+        {
+            return [.. _auditEvents.OrderByDescending(evt => evt.CreatedAtUtc)];
+        }
+    }
+
     public bool DisableExpiredTestUser()
     {
         lock (_gate)
@@ -285,4 +385,3 @@ public sealed class InMemoryState
 [JsonSerializable(typeof(List<PolicyRule>))]
 [JsonSerializable(typeof(List<AuthProviderConfig>))]
 public partial class OwlProtectJsonContext : JsonSerializerContext;
-
