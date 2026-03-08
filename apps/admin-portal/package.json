@@ -12,7 +12,8 @@
     "@owlprotect/contracts": "0.1.0",
     "@owlprotect/theme": "0.1.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",

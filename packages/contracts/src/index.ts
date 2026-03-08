@@ -16,6 +16,20 @@ export const CONTROL_PLANE_STREAM_PATHS = {
 export type ControlPlaneStreamTopic = "alerts" | "gateway-health" | "telemetry" | "sessions";
 export type ControlPlaneStreamKind = "snapshot" | "event" | "keepalive";
 
+export interface Tenant {
+  id: string;
+  name: string;
+  region: string;
+  isDefault: boolean;
+}
+
+export interface BootstrapStatus {
+  requiresPasswordChange: boolean;
+  requiresMfaEnrollment: boolean;
+  testUserEnabled: boolean;
+  testUserAutoDisableAtUtc: string | null;
+}
+
 export interface ControlPlaneStreamFrame<TPayload = unknown> {
   kind: ControlPlaneStreamKind;
   topic: ControlPlaneStreamTopic;
@@ -346,6 +360,83 @@ export interface IssuedMachineTrustMaterial {
   privateKeyPem: string;
 }
 
+export interface AdminLoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface RefreshSessionRequest {
+  refreshToken: string;
+}
+
+export interface StepUpRequest {
+  password: string;
+}
+
+export interface PrivilegedOperationRequest {
+  operationName: string;
+}
+
+export interface UserUpsertRequest {
+  id: string | null;
+  username: string;
+  displayName: string;
+  enabled: boolean;
+  testAccount: boolean;
+  provider: User["provider"];
+  groupIds: string[];
+  policyIds: string[];
+  tenantId: string;
+}
+
+export interface GatewayUpsertRequest {
+  id: string | null;
+  name: string;
+  region: string;
+  health: HealthSeverity;
+  loadPercent: number;
+  peerCount: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  latencyMs: number;
+  tenantId: string;
+}
+
+export interface PolicyUpsertRequest {
+  id: string | null;
+  name: string;
+  cidrs: string[];
+  dnsZones: string[];
+  ports: number[];
+  mode: PolicyRule["mode"];
+  tenantId: string;
+  priority: number;
+  targetGroupIds: string[];
+  requireManaged: boolean;
+  requireCompliant: boolean;
+  minimumPostureScore: number;
+  allowedDeviceStates: DeviceRegistrationState[];
+}
+
+export interface AuthProviderUpsertRequest {
+  id: string | null;
+  name: string;
+  type: AuthProviderConfig["type"];
+  issuer: string;
+  clientId: string;
+  usernameClaimPaths: string[];
+  groupClaimPaths: string[];
+  mfaClaimPaths: string[];
+  requireMfa: boolean;
+  silentSsoEnabled: boolean;
+  tenantId: string;
+}
+
 export interface SessionTokenPair {
   accessToken: string;
   accessTokenExpiresAtUtc: string;
@@ -356,6 +447,12 @@ export interface SessionTokenPair {
 export interface AuthSessionResponse {
   session: PlatformSession;
   tokens: SessionTokenPair;
+  admin: AdminAccount | null;
+  user: User | null;
+}
+
+export interface AuthMeResponse {
+  session: PlatformSession;
   admin: AdminAccount | null;
   user: User | null;
 }
@@ -380,6 +477,11 @@ export interface ValidationErrorResponse {
   error: string;
   errorCode: string;
   details: string[];
+}
+
+export interface AuditRetentionRunResponse {
+  exportedEventCount: number;
+  checkpoint: AuditRetentionCheckpoint | null;
 }
 
 export interface DashboardSnapshot {

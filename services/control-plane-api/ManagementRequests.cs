@@ -71,6 +71,19 @@ public sealed record PolicyUpsertRequest(
     int MinimumPostureScore,
     IReadOnlyList<DeviceRegistrationState>? AllowedDeviceStates);
 
+public sealed record AuthProviderUpsertRequest(
+    string? Id,
+    string Name,
+    string Type,
+    string Issuer,
+    string ClientId,
+    IReadOnlyList<string>? UsernameClaimPaths,
+    IReadOnlyList<string>? GroupClaimPaths,
+    IReadOnlyList<string>? MfaClaimPaths,
+    bool RequireMfa,
+    bool SilentSsoEnabled,
+    string? TenantId);
+
 public sealed record SessionUpsertRequest(
     string? Id,
     string UserId,

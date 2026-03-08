@@ -133,6 +133,29 @@ internal static class ManagementValidation
         return errors;
     }
 
+    public static IReadOnlyList<string> ValidateAuthProviderRequest(AuthProviderUpsertRequest request, IReadOnlyList<AuthProviderConfig> existingProviders)
+    {
+        var errors = new List<string>();
+        RequireNonEmpty(errors, request.Name, "Provider name is required.");
+        RequireNonEmpty(errors, request.Type, "Provider type is required.");
+        RequireNonEmpty(errors, request.Issuer, "Issuer is required.");
+        RequireNonEmpty(errors, request.ClientId, "Client ID is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
+        if (!IsKnownProvider(request.Type) || string.Equals(request.Type, "local", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add("Provider type must be one of: entra, oidc.");
+        }
+
+        if (existingProviders.Any(provider =>
+                !string.Equals(provider.Id, request.Id, StringComparison.Ordinal) &&
+                string.Equals(provider.Name, request.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            errors.Add("Provider name must be unique.");
+        }
+
+        return errors;
+    }
+
     public static IReadOnlyList<string> ValidateSessionRequest(SessionUpsertRequest request, IReadOnlyList<User> users, IReadOnlyList<Device> devices, IReadOnlyList<Gateway> gateways)
     {
         var errors = new List<string>();
@@ -252,6 +275,20 @@ internal static class ManagementValidation
             request.RequireCompliant,
             request.MinimumPostureScore,
             NormalizeRegistrationStates(request.AllowedDeviceStates));
+
+    public static AuthProviderConfig ToAuthProvider(AuthProviderUpsertRequest request, string id) =>
+        new(
+            id,
+            request.Name.Trim(),
+            request.Type.Trim().ToLowerInvariant(),
+            request.Issuer.Trim(),
+            request.ClientId.Trim(),
+            NormalizeStrings(request.UsernameClaimPaths),
+            NormalizeStrings(request.GroupClaimPaths),
+            NormalizeStrings(request.MfaClaimPaths),
+            request.RequireMfa,
+            request.SilentSsoEnabled,
+            request.TenantId!.Trim());
 
     public static TunnelSession ToSession(SessionUpsertRequest request, string id) =>
         new(

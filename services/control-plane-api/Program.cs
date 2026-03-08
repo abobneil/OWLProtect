@@ -593,6 +593,11 @@ compliantAdminGroup.MapGet("/map/connections", (IDeviceRepository deviceReposito
 compliantAdminGroup.MapGet("/map/connections/cities", (GatewayDiagnosticsQueryService queryService, string? tenantId) =>
     Results.Ok(queryService.GetConnectionCityMap(tenantId)));
 compliantAdminGroup.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
+compliantAdminGroup.MapGet("/auth/providers/{providerId}", (string providerId, IAuthProviderConfigRepository authProviderConfigRepository) =>
+{
+    var provider = authProviderConfigRepository.ListAuthProviders().SingleOrDefault(item => item.Id == providerId);
+    return provider is null ? NotFound("Auth provider not found.", "auth_provider_not_found") : Results.Ok(provider);
+});
 compliantAdminGroup.MapGet("/trust-material/query", (IMachineTrustRepository trustRepository, string? kind, string? subjectId) =>
 {
     var query = trustRepository.ListTrustMaterials().AsEnumerable();
@@ -692,6 +697,17 @@ operatorAdminGroup.MapPost("/policies", (HttpContext context, PolicyUpsertReques
     var updated = policyRepository.UpsertPolicy(upsert);
     revalidationService.RevalidateActiveSessions(ControlPlaneSecurity.GetIdentity(context)!.Actor, tenantId: updated.TenantId);
     return Results.Ok(updated);
+});
+operatorAdminGroup.MapPost("/auth/providers", (HttpContext context, AuthProviderUpsertRequest request, IAuthProviderConfigRepository authProviderConfigRepository) =>
+{
+    var errors = ManagementValidation.ValidateAuthProviderRequest(request, authProviderConfigRepository.ListAuthProviders());
+    if (errors.Count > 0)
+    {
+        return ValidationProblemResponse(errors);
+    }
+
+    var upsert = ManagementValidation.ToAuthProvider(request, string.IsNullOrWhiteSpace(request.Id) ? Guid.NewGuid().ToString("n") : request.Id);
+    return Results.Ok(authProviderConfigRepository.UpsertAuthProvider(upsert, ControlPlaneSecurity.GetIdentity(context)!.Actor));
 });
 operatorAdminGroup.MapPost("/sessions", (HttpContext context, SessionUpsertRequest request, ISessionRepository sessionRepository, IUserRepository userRepository, IDeviceRepository deviceRepository, IGatewayRepository gatewayRepository, SessionRevalidationService revalidationService) =>
 {
@@ -891,6 +907,16 @@ privilegedAdminGroup.MapDelete("/policies/{policyId}", (string policyId, IPolicy
 
     policyRepository.DeletePolicy(policyId);
     return Results.NoContent();
+});
+privilegedAdminGroup.MapDelete("/auth/providers/{providerId}", (HttpContext context, string providerId, IAuthProviderConfigRepository authProviderConfigRepository) =>
+{
+    if (authProviderConfigRepository.ListAuthProviders().All(provider => provider.Id != providerId))
+    {
+        return NotFound("Auth provider not found.", "auth_provider_not_found");
+    }
+
+    var deleted = authProviderConfigRepository.DeleteAuthProvider(providerId, ControlPlaneSecurity.GetIdentity(context)!.Actor);
+    return deleted ? Results.NoContent() : NotFound("Auth provider not found.", "auth_provider_not_found");
 });
 privilegedAdminGroup.MapPost("/sessions/{sessionId}/revoke", (HttpContext context, string sessionId, ISessionRepository sessionRepository) =>
 {

@@ -73,6 +73,8 @@ services:
     build:
       context: .
       dockerfile: apps/admin-portal/Dockerfile
+      args:
+        VITE_CONTROL_PLANE_BASE_URL: ${VITE_CONTROL_PLANE_BASE_URL:-}
     ports:
       - "${OWLP_ADMIN_PORTAL_PORT:-4173}:80"
     depends_on:

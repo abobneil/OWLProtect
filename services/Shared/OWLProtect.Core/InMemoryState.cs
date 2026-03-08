@@ -538,6 +538,39 @@ public sealed class InMemoryState :
         }
     }
 
+    public AuthProviderConfig UpsertAuthProvider(AuthProviderConfig provider, string actor)
+    {
+        lock (_gate)
+        {
+            var index = _authProviders.FindIndex(item => item.Id == provider.Id);
+            if (index >= 0)
+            {
+                _authProviders[index] = provider;
+            }
+            else
+            {
+                _authProviders.Add(provider);
+            }
+
+            AddAudit(actor, "upsert-auth-provider", "auth-provider", provider.Id, "success", "Auth provider record created or updated.", provider.TenantId);
+            return provider;
+        }
+    }
+
+    public bool DeleteAuthProvider(string providerId, string actor)
+    {
+        lock (_gate)
+        {
+            var removed = _authProviders.RemoveAll(provider => provider.Id == providerId) > 0;
+            if (removed)
+            {
+                AddAudit(actor, "delete-auth-provider", "auth-provider", providerId, "success", "Auth provider record deleted.");
+            }
+
+            return removed;
+        }
+    }
+
     public IReadOnlyList<AuditEvent> ListAuditEvents()
     {
         lock (_gate)

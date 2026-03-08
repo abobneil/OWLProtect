@@ -691,6 +691,64 @@ public sealed partial class PostgresStore
         transaction.Commit();
     }
 
+    public AuthProviderConfig UpsertAuthProvider(AuthProviderConfig provider, string actor)
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        using var command = new NpgsqlCommand(
+            """
+            INSERT INTO auth_providers (id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled, tenant_id, updated_at_utc)
+            VALUES (@id, @name, @type, @issuer, @client_id, @username_claim_paths, @group_claim_paths, @mfa_claim_paths, @require_mfa, @silent_sso_enabled, @tenant_id, NOW())
+            ON CONFLICT (id) DO UPDATE
+            SET name = EXCLUDED.name,
+                type = EXCLUDED.type,
+                issuer = EXCLUDED.issuer,
+                client_id = EXCLUDED.client_id,
+                username_claim_paths = EXCLUDED.username_claim_paths,
+                group_claim_paths = EXCLUDED.group_claim_paths,
+                mfa_claim_paths = EXCLUDED.mfa_claim_paths,
+                require_mfa = EXCLUDED.require_mfa,
+                silent_sso_enabled = EXCLUDED.silent_sso_enabled,
+                tenant_id = EXCLUDED.tenant_id,
+                updated_at_utc = NOW()
+            RETURNING id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled, tenant_id
+            """,
+            connection,
+            transaction);
+        BindAuthProvider(command, provider);
+
+        using var reader = command.ExecuteReader();
+        reader.Read();
+        var updated = MapAuthProvider(reader);
+        reader.Close();
+
+        AddAudit(connection, transaction, actor, "upsert-auth-provider", "auth-provider", updated.Id, "success", "Auth provider record created or updated.", updated.TenantId);
+        transaction.Commit();
+        return updated;
+    }
+
+    public bool DeleteAuthProvider(string providerId, string actor)
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        int rowsAffected;
+        using (var deleteProvider = new NpgsqlCommand("DELETE FROM auth_providers WHERE id = @id", connection, transaction))
+        {
+            deleteProvider.Parameters.AddWithValue("id", providerId);
+            rowsAffected = deleteProvider.ExecuteNonQuery();
+        }
+
+        if (rowsAffected > 0)
+        {
+            AddAudit(connection, transaction, actor, "delete-auth-provider", "auth-provider", providerId, "success", "Auth provider record deleted.");
+        }
+
+        transaction.Commit();
+        return rowsAffected > 0;
+    }
+
     public TunnelSession UpsertSession(TunnelSession session)
     {
         using var connection = _dataSource.OpenConnection();

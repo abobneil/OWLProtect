@@ -85,6 +85,8 @@ public interface IAlertRepository
 public interface IAuthProviderConfigRepository
 {
     IReadOnlyList<AuthProviderConfig> ListAuthProviders();
+    AuthProviderConfig UpsertAuthProvider(AuthProviderConfig provider, string actor);
+    bool DeleteAuthProvider(string providerId, string actor);
 }
 
 public interface IAuditRepository

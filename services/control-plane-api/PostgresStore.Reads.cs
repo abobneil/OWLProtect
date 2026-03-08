@@ -360,18 +360,7 @@ public sealed partial class PostgresStore
         var providers = new List<AuthProviderConfig>();
         while (reader.Read())
         {
-            providers.Add(new AuthProviderConfig(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.GetString(4),
-                ReadStringArray(reader, 5),
-                ReadStringArray(reader, 6),
-                ReadStringArray(reader, 7),
-                reader.GetBoolean(8),
-                reader.GetBoolean(9),
-                reader.GetString(10)));
+            providers.Add(MapAuthProvider(reader));
         }
 
         return providers;

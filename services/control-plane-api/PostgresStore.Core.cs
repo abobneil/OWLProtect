@@ -430,6 +430,20 @@ public sealed partial class PostgresStore :
             reader.GetString(9),
             reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10));
 
+    private static AuthProviderConfig MapAuthProvider(NpgsqlDataReader reader) =>
+        new(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            ReadStringArray(reader, 5),
+            ReadStringArray(reader, 6),
+            ReadStringArray(reader, 7),
+            reader.GetBoolean(8),
+            reader.GetBoolean(9),
+            reader.GetString(10));
+
     private static ConnectionState ParseConnectionState(string value) =>
         Enum.Parse<ConnectionState>(value, ignoreCase: true);
 
@@ -454,5 +468,20 @@ public sealed partial class PostgresStore :
         command.Parameters.AddWithValue("memory_percent", gateway.MemoryPercent);
         command.Parameters.AddWithValue("latency_ms", gateway.LatencyMs);
         command.Parameters.AddWithValue("tenant_id", gateway.TenantId);
+    }
+
+    private static void BindAuthProvider(NpgsqlCommand command, AuthProviderConfig provider)
+    {
+        command.Parameters.AddWithValue("id", provider.Id);
+        command.Parameters.AddWithValue("name", provider.Name);
+        command.Parameters.AddWithValue("type", provider.Type);
+        command.Parameters.AddWithValue("issuer", provider.Issuer);
+        command.Parameters.AddWithValue("client_id", provider.ClientId);
+        command.Parameters.AddWithValue("username_claim_paths", provider.UsernameClaimPaths.ToArray());
+        command.Parameters.AddWithValue("group_claim_paths", provider.GroupClaimPaths.ToArray());
+        command.Parameters.AddWithValue("mfa_claim_paths", provider.MfaClaimPaths.ToArray());
+        command.Parameters.AddWithValue("require_mfa", provider.RequireMfa);
+        command.Parameters.AddWithValue("silent_sso_enabled", provider.SilentSsoEnabled);
+        command.Parameters.AddWithValue("tenant_id", provider.TenantId);
     }
 }
