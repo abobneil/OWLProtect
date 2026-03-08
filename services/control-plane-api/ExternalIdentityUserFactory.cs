@@ -24,6 +24,7 @@ internal static class ExternalIdentityUserFactory
             TestAccount: false,
             Provider: providerConfig.Type,
             GroupIds: identityContext.Groups,
-            PolicyIds: existingUser?.PolicyIds ?? []);
+            PolicyIds: existingUser?.PolicyIds ?? [],
+            TenantId: existingUser?.TenantId ?? providerConfig.TenantId);
     }
 }

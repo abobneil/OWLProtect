@@ -7,6 +7,7 @@ namespace OWLProtect.ControlPlane.Api;
 public sealed partial class PostgresStore :
     IBootstrapService,
     IDashboardQueryService,
+    ITenantRepository,
     IAdminRepository,
     IUserRepository,
     IDeviceRepository,
@@ -27,17 +28,20 @@ public sealed partial class PostgresStore :
     private readonly NpgsqlDataSource _dataSource;
     private readonly PersistenceOptions _options;
     private readonly IBootstrapAdminCredentialsProvider _bootstrapAdminCredentialsProvider;
+    private readonly IPlatformBootstrapSettingsProvider _bootstrapSettingsProvider;
     private readonly IControlPlaneEventPublisher _eventPublisher;
 
     public PostgresStore(
         IOptions<PersistenceOptions> options,
         ILogger<PostgresStore> logger,
         IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider,
+        IPlatformBootstrapSettingsProvider bootstrapSettingsProvider,
         IControlPlaneEventPublisher eventPublisher)
     {
         _options = options.Value;
         _logger = logger;
         _bootstrapAdminCredentialsProvider = bootstrapAdminCredentialsProvider;
+        _bootstrapSettingsProvider = bootstrapSettingsProvider;
         _eventPublisher = eventPublisher;
 
         if (string.IsNullOrWhiteSpace(_options.ConnectionString))
@@ -68,11 +72,11 @@ public sealed partial class PostgresStore :
 
     public void Dispose() => _dataSource.Dispose();
 
-    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
+    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null)
     {
         using var connection = _dataSource.OpenConnection();
         using var transaction = connection.BeginTransaction();
-        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail, tenantId);
         transaction.Commit();
     }
 
@@ -168,7 +172,7 @@ public sealed partial class PostgresStore :
         return MapAdmin(reader);
     }
 
-    private Alert AddAlert(NpgsqlConnection connection, NpgsqlTransaction? transaction, HealthSeverity severity, string title, string description, string targetType, string targetId)
+    private Alert AddAlert(NpgsqlConnection connection, NpgsqlTransaction? transaction, HealthSeverity severity, string title, string description, string targetType, string targetId, string? tenantId = null)
     {
         var alert = new Alert(
             Guid.NewGuid().ToString("n"),
@@ -177,12 +181,13 @@ public sealed partial class PostgresStore :
             description,
             targetType,
             targetId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            tenantId ?? _bootstrapSettingsProvider.GetSettings().DefaultTenantId);
 
         using var command = new NpgsqlCommand(
             """
-            INSERT INTO alerts (id, severity, title, description, target_type, target_id, created_at_utc)
-            VALUES (@id, @severity, @title, @description, @target_type, @target_id, @created_at_utc)
+            INSERT INTO alerts (id, severity, title, description, target_type, target_id, created_at_utc, tenant_id)
+            VALUES (@id, @severity, @title, @description, @target_type, @target_id, @created_at_utc, @tenant_id)
             """,
             connection,
             transaction);
@@ -193,20 +198,21 @@ public sealed partial class PostgresStore :
         command.Parameters.AddWithValue("target_type", alert.TargetType);
         command.Parameters.AddWithValue("target_id", alert.TargetId);
         command.Parameters.AddWithValue("created_at_utc", alert.CreatedAtUtc);
+        command.Parameters.AddWithValue("tenant_id", alert.TenantId);
         command.ExecuteNonQuery();
         return alert;
     }
 
-    private void AddAudit(NpgsqlConnection connection, string actor, string action, string targetType, string targetId, string outcome, string detail)
+    private void AddAudit(NpgsqlConnection connection, string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null)
     {
         using var transaction = connection.BeginTransaction();
-        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        AddAudit(connection, transaction, actor, action, targetType, targetId, outcome, detail, tenantId);
         transaction.Commit();
     }
 
-    private void AddAudit(NpgsqlConnection connection, NpgsqlTransaction? transaction, string actor, string action, string targetType, string targetId, string outcome, string detail)
+    private void AddAudit(NpgsqlConnection connection, NpgsqlTransaction? transaction, string actor, string action, string targetType, string targetId, string outcome, string detail, string? tenantId = null)
     {
-        var auditEvent = CreateNextAuditEvent(connection, transaction, actor, action, targetType, targetId, outcome, detail);
+        var auditEvent = CreateNextAuditEvent(connection, transaction, actor, action, targetType, targetId, outcome, detail, tenantId);
         InsertAuditEvent(connection, transaction, auditEvent);
     }
 
@@ -218,7 +224,8 @@ public sealed partial class PostgresStore :
         string targetType,
         string targetId,
         string outcome,
-        string detail)
+        string detail,
+        string? tenantId = null)
     {
         LockAuditChain(connection, transaction);
 
@@ -252,15 +259,16 @@ public sealed partial class PostgresStore :
             targetId,
             DateTimeOffset.UtcNow,
             outcome,
-            detail);
+            detail,
+            tenantId ?? _bootstrapSettingsProvider.GetSettings().DefaultTenantId);
     }
 
     private static void InsertAuditEvent(NpgsqlConnection connection, NpgsqlTransaction? transaction, AuditEvent auditEvent)
     {
         using var command = new NpgsqlCommand(
             """
-            INSERT INTO audit_events (id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash)
-            VALUES (@id, @sequence_number, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail, @previous_event_hash, @event_hash)
+            INSERT INTO audit_events (id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash, tenant_id)
+            VALUES (@id, @sequence_number, @actor, @action, @target_type, @target_id, @created_at_utc, @outcome, @detail, @previous_event_hash, @event_hash, @tenant_id)
             """,
             connection,
             transaction);
@@ -275,6 +283,7 @@ public sealed partial class PostgresStore :
         command.Parameters.AddWithValue("detail", auditEvent.Detail);
         command.Parameters.AddWithValue("previous_event_hash", (object?)auditEvent.PreviousEventHash ?? DBNull.Value);
         command.Parameters.AddWithValue("event_hash", auditEvent.EventHash);
+        command.Parameters.AddWithValue("tenant_id", auditEvent.TenantId);
         command.ExecuteNonQuery();
     }
 
@@ -314,7 +323,7 @@ public sealed partial class PostgresStore :
         AuditEvent? previous = null;
         await using (var command = new NpgsqlCommand(
                          """
-                         SELECT id, actor, action, target_type, target_id, created_at_utc, outcome, detail
+                         SELECT id, actor, action, target_type, target_id, created_at_utc, outcome, detail, tenant_id
                          FROM audit_events
                          ORDER BY created_at_utc, id
                          """,
@@ -333,7 +342,8 @@ public sealed partial class PostgresStore :
                     reader.GetString(4),
                     reader.GetFieldValue<DateTimeOffset>(5),
                     reader.GetString(6),
-                    reader.GetString(7));
+                    reader.GetString(7),
+                    reader.IsDBNull(8) ? _bootstrapSettingsProvider.GetSettings().DefaultTenantId : reader.GetString(8));
                 rebuiltEvents.Add(previous);
             }
         }
@@ -379,7 +389,8 @@ public sealed partial class PostgresStore :
             reader.GetBoolean(4),
             reader.GetString(5),
             ReadStringArray(reader, 6),
-            ReadStringArray(reader, 7));
+            ReadStringArray(reader, 7),
+            reader.GetString(8));
 
     private static Device MapDevice(NpgsqlDataReader reader) =>
         new(
@@ -393,7 +404,17 @@ public sealed partial class PostgresStore :
             reader.GetBoolean(7),
             reader.GetInt32(8),
             ParseConnectionState(reader.GetString(9)),
-            reader.GetFieldValue<DateTimeOffset>(10));
+            reader.GetFieldValue<DateTimeOffset>(10),
+            reader.GetString(11),
+            Enum.Parse<DeviceRegistrationState>(reader.GetString(12), ignoreCase: true),
+            Enum.Parse<DeviceEnrollmentKind>(reader.GetString(13), ignoreCase: true),
+            reader.GetString(14),
+            reader.GetString(15),
+            reader.GetString(16),
+            reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
+            reader.IsDBNull(18) ? null : reader.GetFieldValue<DateTimeOffset>(18),
+            reader.IsDBNull(19) ? null : reader.GetFieldValue<DateTimeOffset>(19),
+            ReadStringArray(reader, 20));
 
     private static Gateway MapGateway(NpgsqlDataReader reader) =>
         new(
@@ -405,7 +426,8 @@ public sealed partial class PostgresStore :
             reader.GetInt32(5),
             reader.GetInt32(6),
             reader.GetInt32(7),
-            reader.GetInt32(8));
+            reader.GetInt32(8),
+            reader.GetString(9));
 
     private static ConnectionState ParseConnectionState(string value) =>
         Enum.Parse<ConnectionState>(value, ignoreCase: true);
@@ -430,5 +452,6 @@ public sealed partial class PostgresStore :
         command.Parameters.AddWithValue("cpu_percent", gateway.CpuPercent);
         command.Parameters.AddWithValue("memory_percent", gateway.MemoryPercent);
         command.Parameters.AddWithValue("latency_ms", gateway.LatencyMs);
+        command.Parameters.AddWithValue("tenant_id", gateway.TenantId);
     }
 }

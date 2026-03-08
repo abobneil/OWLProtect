@@ -35,11 +35,33 @@ public enum PlatformSessionKind
     Client
 }
 
+public enum DeviceRegistrationState
+{
+    Pending,
+    Enrolled,
+    Disabled,
+    Revoked
+}
+
+public enum DeviceEnrollmentKind
+{
+    Bootstrap,
+    ReEnrollment,
+    Recovery,
+    Reconciliation
+}
+
 public enum MachineTrustSubjectKind
 {
     Gateway,
     Device
 }
+
+public sealed record Tenant(
+    string Id,
+    string Name,
+    string Region,
+    bool IsDefault);
 
 public sealed record User(
     string Id,
@@ -49,7 +71,8 @@ public sealed record User(
     bool TestAccount,
     string Provider,
     IReadOnlyList<string> GroupIds,
-    IReadOnlyList<string> PolicyIds);
+    IReadOnlyList<string> PolicyIds,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record AdminAccount(
     string Id,
@@ -71,7 +94,17 @@ public sealed record Device(
     bool Compliant,
     int PostureScore,
     ConnectionState ConnectionState,
-    DateTimeOffset LastSeenUtc);
+    DateTimeOffset LastSeenUtc,
+    string TenantId = SeedData.DefaultTenantId,
+    DeviceRegistrationState RegistrationState = DeviceRegistrationState.Pending,
+    DeviceEnrollmentKind EnrollmentKind = DeviceEnrollmentKind.Bootstrap,
+    string HardwareKey = "",
+    string SerialNumber = "",
+    string OperatingSystem = "",
+    DateTimeOffset? RegisteredAtUtc = null,
+    DateTimeOffset? LastEnrollmentAtUtc = null,
+    DateTimeOffset? DisabledAtUtc = null,
+    IReadOnlyList<string>? ComplianceReasons = null);
 
 public sealed record Gateway(
     string Id,
@@ -82,13 +115,15 @@ public sealed record Gateway(
     int PeerCount,
     int CpuPercent,
     int MemoryPercent,
-    int LatencyMs);
+    int LatencyMs,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record GatewayPool(
     string Id,
     string Name,
     IReadOnlyList<string> Regions,
-    IReadOnlyList<string> GatewayIds);
+    IReadOnlyList<string> GatewayIds,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record PolicyRule(
     string Id,
@@ -96,7 +131,14 @@ public sealed record PolicyRule(
     IReadOnlyList<string> Cidrs,
     IReadOnlyList<string> DnsZones,
     IReadOnlyList<int> Ports,
-    string Mode);
+    string Mode,
+    string TenantId = SeedData.DefaultTenantId,
+    int Priority = 100,
+    IReadOnlyList<string>? TargetGroupIds = null,
+    bool RequireManaged = true,
+    bool RequireCompliant = true,
+    int MinimumPostureScore = 80,
+    IReadOnlyList<DeviceRegistrationState>? AllowedDeviceStates = null);
 
 public sealed record TunnelSession(
     string Id,
@@ -105,7 +147,11 @@ public sealed record TunnelSession(
     string GatewayId,
     DateTimeOffset ConnectedAtUtc,
     int HandshakeAgeSeconds,
-    int ThroughputMbps);
+    int ThroughputMbps,
+    string TenantId = SeedData.DefaultTenantId,
+    string PolicyBundleVersion = "",
+    DateTimeOffset? AuthorizedAtUtc = null,
+    DateTimeOffset? RevalidateAfterUtc = null);
 
 public sealed record HealthSample(
     string Id,
@@ -120,7 +166,8 @@ public sealed record HealthSample(
     bool DnsReachable,
     bool RouteHealthy,
     DateTimeOffset SampledAtUtc,
-    string Message);
+    string Message,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record Alert(
     string Id,
@@ -129,7 +176,8 @@ public sealed record Alert(
     string Description,
     string TargetType,
     string TargetId,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record PostureReport(
     string DeviceId,
@@ -140,7 +188,10 @@ public sealed record PostureReport(
     bool FirewallEnabled,
     bool SecureBootEnabled,
     bool TamperProtectionEnabled,
-    string OsVersion);
+    string OsVersion,
+    string TenantId = SeedData.DefaultTenantId,
+    int SchemaVersion = 1,
+    DateTimeOffset? CollectedAtUtc = null);
 
 public sealed record AuthProviderConfig(
     string Id,
@@ -152,7 +203,8 @@ public sealed record AuthProviderConfig(
     IReadOnlyList<string> GroupClaimPaths,
     IReadOnlyList<string> MfaClaimPaths,
     bool RequireMfa,
-    bool SilentSsoEnabled);
+    bool SilentSsoEnabled,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record AuditEvent(
     string Id,
@@ -165,7 +217,41 @@ public sealed record AuditEvent(
     string Outcome,
     string Detail,
     string? PreviousEventHash,
-    string EventHash);
+    string EventHash,
+    string TenantId = SeedData.DefaultTenantId);
+
+public sealed record PolicyResolutionResult(
+    string TenantId,
+    string UserId,
+    string DeviceId,
+    IReadOnlyList<string> EffectiveGroups,
+    IReadOnlyList<string> PolicyIds,
+    IReadOnlyList<string> DecisionLog);
+
+public sealed record ResolvedPolicyBundle(
+    string TenantId,
+    string UserId,
+    string DeviceId,
+    string Version,
+    DateTimeOffset GeneratedAtUtc,
+    IReadOnlyList<string> PolicyIds,
+    IReadOnlyList<string> Cidrs,
+    IReadOnlyList<string> DnsZones,
+    IReadOnlyList<int> Ports);
+
+public sealed record SessionAuthorizationDecision(
+    bool Authorized,
+    string ErrorCode,
+    string Message,
+    PolicyResolutionResult? Resolution,
+    ResolvedPolicyBundle? Bundle,
+    DateTimeOffset? RevalidateAfterUtc);
+
+public sealed record DeviceEnrollmentResult(
+    Device Device,
+    bool RequiresApproval,
+    bool ReconciledExistingRecord,
+    string Action);
 
 public sealed record AuditRetentionOperation(
     DateTimeOffset CutoffUtc,

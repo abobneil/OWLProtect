@@ -18,7 +18,8 @@ public sealed record UserUpsertRequest(
     bool TestAccount,
     string Provider,
     IReadOnlyList<string>? GroupIds,
-    IReadOnlyList<string>? PolicyIds);
+    IReadOnlyList<string>? PolicyIds,
+    string? TenantId);
 
 public sealed record DeviceUpsertRequest(
     string? Id,
@@ -31,7 +32,17 @@ public sealed record DeviceUpsertRequest(
     bool Compliant,
     int PostureScore,
     ConnectionState ConnectionState,
-    DateTimeOffset? LastSeenUtc);
+    DateTimeOffset? LastSeenUtc,
+    string? TenantId,
+    DeviceRegistrationState RegistrationState,
+    DeviceEnrollmentKind EnrollmentKind,
+    string? HardwareKey,
+    string? SerialNumber,
+    string? OperatingSystem,
+    DateTimeOffset? RegisteredAtUtc,
+    DateTimeOffset? LastEnrollmentAtUtc,
+    DateTimeOffset? DisabledAtUtc,
+    IReadOnlyList<string>? ComplianceReasons);
 
 public sealed record GatewayUpsertRequest(
     string? Id,
@@ -42,7 +53,8 @@ public sealed record GatewayUpsertRequest(
     int PeerCount,
     int CpuPercent,
     int MemoryPercent,
-    int LatencyMs);
+    int LatencyMs,
+    string? TenantId);
 
 public sealed record PolicyUpsertRequest(
     string? Id,
@@ -50,7 +62,14 @@ public sealed record PolicyUpsertRequest(
     IReadOnlyList<string>? Cidrs,
     IReadOnlyList<string>? DnsZones,
     IReadOnlyList<int>? Ports,
-    string Mode);
+    string Mode,
+    string? TenantId,
+    int Priority,
+    IReadOnlyList<string>? TargetGroupIds,
+    bool RequireManaged,
+    bool RequireCompliant,
+    int MinimumPostureScore,
+    IReadOnlyList<DeviceRegistrationState>? AllowedDeviceStates);
 
 public sealed record SessionUpsertRequest(
     string? Id,
@@ -59,4 +78,16 @@ public sealed record SessionUpsertRequest(
     string GatewayId,
     DateTimeOffset? ConnectedAtUtc,
     int HandshakeAgeSeconds,
-    int ThroughputMbps);
+    int ThroughputMbps,
+    string? TenantId);
+
+public sealed record DeviceEnrollmentRequest(
+    string DeviceName,
+    string City,
+    string Country,
+    string PublicIp,
+    string HardwareKey,
+    string SerialNumber,
+    string OperatingSystem,
+    DeviceEnrollmentKind EnrollmentKind,
+    bool Managed);

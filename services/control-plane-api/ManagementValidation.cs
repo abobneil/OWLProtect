@@ -29,6 +29,7 @@ internal static class ManagementValidation
         var errors = new List<string>();
         RequireNonEmpty(errors, request.Username, "Username is required.");
         RequireNonEmpty(errors, request.DisplayName, "Display name is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
         if (!IsKnownProvider(request.Provider))
         {
             errors.Add("Provider must be one of: local, entra, oidc.");
@@ -52,6 +53,7 @@ internal static class ManagementValidation
         RequireNonEmpty(errors, request.City, "City is required.");
         RequireNonEmpty(errors, request.Country, "Country is required.");
         RequireNonEmpty(errors, request.PublicIp, "Public IP is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
         if (request.PostureScore is < 0 or > 100)
         {
             errors.Add("Posture score must be between 0 and 100.");
@@ -62,9 +64,14 @@ internal static class ManagementValidation
             errors.Add("Public IP must be a valid IP address.");
         }
 
-        if (users.All(user => !string.Equals(user.Id, request.UserId, StringComparison.Ordinal)))
+        var user = users.SingleOrDefault(existing => string.Equals(existing.Id, request.UserId, StringComparison.Ordinal));
+        if (user is null)
         {
             errors.Add("Referenced user does not exist.");
+        }
+        else if (!string.Equals(user.TenantId, request.TenantId, StringComparison.Ordinal))
+        {
+            errors.Add("Device tenant must match the owning user tenant.");
         }
 
         return errors;
@@ -75,6 +82,7 @@ internal static class ManagementValidation
         var errors = new List<string>();
         RequireNonEmpty(errors, request.Name, "Gateway name is required.");
         RequireNonEmpty(errors, request.Region, "Region is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
         ValidatePercentage(errors, request.LoadPercent, "Load percent must be between 0 and 100.");
         ValidatePercentage(errors, request.CpuPercent, "CPU percent must be between 0 and 100.");
         ValidatePercentage(errors, request.MemoryPercent, "Memory percent must be between 0 and 100.");
@@ -95,9 +103,15 @@ internal static class ManagementValidation
     {
         var errors = new List<string>();
         RequireNonEmpty(errors, request.Name, "Policy name is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
         if (!string.Equals(request.Mode, "split-tunnel", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add("Policy mode must be 'split-tunnel'.");
+        }
+
+        if (request.MinimumPostureScore is < 0 or > 100)
+        {
+            errors.Add("Minimum posture score must be between 0 and 100.");
         }
 
         if (existingPolicies.Any(policy =>
@@ -125,6 +139,7 @@ internal static class ManagementValidation
         RequireNonEmpty(errors, request.UserId, "User ID is required.");
         RequireNonEmpty(errors, request.DeviceId, "Device ID is required.");
         RequireNonEmpty(errors, request.GatewayId, "Gateway ID is required.");
+        RequireNonEmpty(errors, request.TenantId, "Tenant ID is required.");
 
         if (request.HandshakeAgeSeconds < 0)
         {
@@ -136,19 +151,37 @@ internal static class ManagementValidation
             errors.Add("Throughput Mbps must be zero or greater.");
         }
 
-        if (users.All(user => !string.Equals(user.Id, request.UserId, StringComparison.Ordinal)))
+        var user = users.SingleOrDefault(existing => string.Equals(existing.Id, request.UserId, StringComparison.Ordinal));
+        if (user is null)
         {
             errors.Add("Referenced user does not exist.");
         }
 
-        if (devices.All(device => !string.Equals(device.Id, request.DeviceId, StringComparison.Ordinal)))
+        var device = devices.SingleOrDefault(existing => string.Equals(existing.Id, request.DeviceId, StringComparison.Ordinal));
+        if (device is null)
         {
             errors.Add("Referenced device does not exist.");
         }
 
-        if (gateways.All(gateway => !string.Equals(gateway.Id, request.GatewayId, StringComparison.Ordinal)))
+        var gateway = gateways.SingleOrDefault(existing => string.Equals(existing.Id, request.GatewayId, StringComparison.Ordinal));
+        if (gateway is null)
         {
             errors.Add("Referenced gateway does not exist.");
+        }
+
+        if (user is not null && !string.Equals(user.TenantId, request.TenantId, StringComparison.Ordinal))
+        {
+            errors.Add("Session tenant must match the user tenant.");
+        }
+
+        if (device is not null && !string.Equals(device.TenantId, request.TenantId, StringComparison.Ordinal))
+        {
+            errors.Add("Session tenant must match the device tenant.");
+        }
+
+        if (gateway is not null && !string.Equals(gateway.TenantId, request.TenantId, StringComparison.Ordinal))
+        {
+            errors.Add("Session tenant must match the gateway tenant.");
         }
 
         return errors;
@@ -163,7 +196,8 @@ internal static class ManagementValidation
             request.TestAccount,
             request.Provider.Trim().ToLowerInvariant(),
             NormalizeStrings(request.GroupIds),
-            NormalizeStrings(request.PolicyIds));
+            NormalizeStrings(request.PolicyIds),
+            request.TenantId!.Trim());
 
     public static Device ToDevice(DeviceUpsertRequest request, string id) =>
         new(
@@ -177,7 +211,17 @@ internal static class ManagementValidation
             request.Compliant,
             request.PostureScore,
             request.ConnectionState,
-            request.LastSeenUtc ?? DateTimeOffset.UtcNow);
+            request.LastSeenUtc ?? DateTimeOffset.UtcNow,
+            request.TenantId!.Trim(),
+            request.RegistrationState,
+            request.EnrollmentKind,
+            request.HardwareKey?.Trim() ?? string.Empty,
+            request.SerialNumber?.Trim() ?? string.Empty,
+            request.OperatingSystem?.Trim() ?? string.Empty,
+            request.RegisteredAtUtc,
+            request.LastEnrollmentAtUtc,
+            request.DisabledAtUtc,
+            NormalizeStrings(request.ComplianceReasons));
 
     public static Gateway ToGateway(GatewayUpsertRequest request, string id) =>
         new(
@@ -189,7 +233,8 @@ internal static class ManagementValidation
             request.PeerCount,
             request.CpuPercent,
             request.MemoryPercent,
-            request.LatencyMs);
+            request.LatencyMs,
+            request.TenantId!.Trim());
 
     public static PolicyRule ToPolicy(PolicyUpsertRequest request, string id) =>
         new(
@@ -198,7 +243,14 @@ internal static class ManagementValidation
             NormalizeStrings(request.Cidrs),
             NormalizeStrings(request.DnsZones),
             (request.Ports ?? []).Distinct().OrderBy(port => port).ToArray(),
-            request.Mode.Trim().ToLowerInvariant());
+            request.Mode.Trim().ToLowerInvariant(),
+            request.TenantId!.Trim(),
+            request.Priority,
+            NormalizeStrings(request.TargetGroupIds),
+            request.RequireManaged,
+            request.RequireCompliant,
+            request.MinimumPostureScore,
+            NormalizeRegistrationStates(request.AllowedDeviceStates));
 
     public static TunnelSession ToSession(SessionUpsertRequest request, string id) =>
         new(
@@ -208,7 +260,8 @@ internal static class ManagementValidation
             request.GatewayId.Trim(),
             request.ConnectedAtUtc ?? DateTimeOffset.UtcNow,
             request.HandshakeAgeSeconds,
-            request.ThroughputMbps);
+            request.ThroughputMbps,
+            request.TenantId!.Trim());
 
     public static AdminAccount ToAdmin(AdminUpsertRequest request, string id, string passwordHash) =>
         new(
@@ -224,6 +277,12 @@ internal static class ManagementValidation
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static DeviceRegistrationState[] NormalizeRegistrationStates(IReadOnlyList<DeviceRegistrationState>? values) =>
+        (values ?? [])
+            .Distinct()
+            .OrderBy(value => value)
             .ToArray();
 
     private static bool IsKnownProvider(string provider) =>

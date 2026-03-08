@@ -19,6 +19,33 @@ public sealed partial class PostgresStore
             ListAuthProviders(),
             ListAuditEvents());
 
+    public IReadOnlyList<Tenant> ListTenants()
+    {
+        using var connection = _dataSource.OpenConnection();
+        using var command = new NpgsqlCommand(
+            """
+            SELECT DISTINCT tenant_id
+            FROM users
+            ORDER BY tenant_id
+            """,
+            connection);
+        using var reader = command.ExecuteReader();
+
+        var tenants = new List<Tenant>();
+        while (reader.Read())
+        {
+            var tenantId = reader.GetString(0);
+            var defaults = _bootstrapSettingsProvider.GetSettings();
+            tenants.Add(new Tenant(
+                tenantId,
+                string.Equals(tenantId, defaults.DefaultTenantId, StringComparison.Ordinal) ? defaults.DefaultTenantName : tenantId,
+                string.Equals(tenantId, defaults.DefaultTenantId, StringComparison.Ordinal) ? defaults.DefaultTenantRegion : "unknown",
+                string.Equals(tenantId, defaults.DefaultTenantId, StringComparison.Ordinal)));
+        }
+
+        return tenants;
+    }
+
     public BootstrapStatus GetBootstrapStatus()
     {
         using var connection = _dataSource.OpenConnection();
@@ -76,7 +103,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, username, display_name, enabled, test_account, provider_type, group_ids, policy_ids, enabled_at_utc
+            SELECT id, username, display_name, enabled, test_account, provider_type, group_ids, policy_ids, tenant_id, enabled_at_utc
             FROM users
             ORDER BY username
             """,
@@ -97,7 +124,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, user_id, city, country, public_ip, managed, compliant, posture_score, connection_state, last_seen_utc
+            SELECT id, name, user_id, city, country, public_ip, managed, compliant, posture_score, connection_state, last_seen_utc, tenant_id, registration_state, enrollment_kind, hardware_key, serial_number, operating_system, registered_at_utc, last_enrollment_at_utc, disabled_at_utc, compliance_reasons
             FROM devices
             ORDER BY name
             """,
@@ -145,7 +172,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms
+            SELECT id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms, tenant_id
             FROM gateways
             ORDER BY name
             """,
@@ -166,7 +193,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, regions, gateway_ids
+            SELECT id, name, regions, gateway_ids, tenant_id
             FROM gateway_pools
             ORDER BY name
             """,
@@ -180,7 +207,8 @@ public sealed partial class PostgresStore
                 reader.GetString(0),
                 reader.GetString(1),
                 ReadStringArray(reader, 2),
-                ReadStringArray(reader, 3)));
+                ReadStringArray(reader, 3),
+                reader.GetString(4)));
         }
 
         return pools;
@@ -191,7 +219,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, cidrs, dns_zones, ports, mode
+            SELECT id, name, cidrs, dns_zones, ports, mode, tenant_id, priority, target_group_ids, require_managed, require_compliant, minimum_posture_score, allowed_registration_states
             FROM policies
             ORDER BY name
             """,
@@ -207,7 +235,14 @@ public sealed partial class PostgresStore
                 ReadStringArray(reader, 2),
                 ReadStringArray(reader, 3),
                 ReadIntArray(reader, 4),
-                reader.GetString(5)));
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetInt32(7),
+                ReadStringArray(reader, 8),
+                reader.GetBoolean(9),
+                reader.GetBoolean(10),
+                reader.GetInt32(11),
+                ReadStringArray(reader, 12).Select(value => Enum.Parse<DeviceRegistrationState>(value, ignoreCase: true)).ToArray()));
         }
 
         return policies;
@@ -218,7 +253,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, user_id, device_id, gateway_id, connected_at_utc, handshake_age_seconds, throughput_mbps
+            SELECT id, user_id, device_id, gateway_id, connected_at_utc, handshake_age_seconds, throughput_mbps, tenant_id, policy_bundle_version, authorized_at_utc, revalidate_after_utc
             FROM user_sessions
             WHERE revoked_at_utc IS NULL
             ORDER BY connected_at_utc DESC
@@ -236,7 +271,11 @@ public sealed partial class PostgresStore
                 reader.GetString(3),
                 reader.GetFieldValue<DateTimeOffset>(4),
                 reader.GetInt32(5),
-                reader.GetInt32(6)));
+                reader.GetInt32(6),
+                reader.GetString(7),
+                reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+                reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+                reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10)));
         }
 
         return sessions;
@@ -247,7 +286,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, device_id, state, severity, latency_ms, jitter_ms, packet_loss_percent, throughput_mbps, signal_strength_percent, dns_reachable, route_healthy, sampled_at_utc, message
+            SELECT id, device_id, state, severity, latency_ms, jitter_ms, packet_loss_percent, throughput_mbps, signal_strength_percent, dns_reachable, route_healthy, sampled_at_utc, message, tenant_id
             FROM health_samples
             ORDER BY sampled_at_utc DESC
             """,
@@ -270,7 +309,8 @@ public sealed partial class PostgresStore
                 reader.GetBoolean(9),
                 reader.GetBoolean(10),
                 reader.GetFieldValue<DateTimeOffset>(11),
-                reader.GetString(12)));
+                reader.GetString(12),
+                reader.GetString(13)));
         }
 
         return samples;
@@ -281,7 +321,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, severity, title, description, target_type, target_id, created_at_utc
+            SELECT id, severity, title, description, target_type, target_id, created_at_utc, tenant_id
             FROM alerts
             ORDER BY created_at_utc DESC
             """,
@@ -298,7 +338,8 @@ public sealed partial class PostgresStore
                 reader.GetString(3),
                 reader.GetString(4),
                 reader.GetString(5),
-                reader.GetFieldValue<DateTimeOffset>(6)));
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetString(7)));
         }
 
         return alerts;
@@ -309,7 +350,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled
+            SELECT id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled, tenant_id
             FROM auth_providers
             ORDER BY name
             """,
@@ -329,7 +370,8 @@ public sealed partial class PostgresStore
                 ReadStringArray(reader, 6),
                 ReadStringArray(reader, 7),
                 reader.GetBoolean(8),
-                reader.GetBoolean(9)));
+                reader.GetBoolean(9),
+                reader.GetString(10)));
         }
 
         return providers;
@@ -340,7 +382,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash
+            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash, tenant_id
             FROM audit_events
             ORDER BY sequence_number DESC NULLS LAST, created_at_utc DESC
             """,
@@ -361,7 +403,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash
+            SELECT id, sequence_number, actor, action, target_type, target_id, created_at_utc, outcome, detail, previous_event_hash, event_hash, tenant_id
             FROM audit_events
             WHERE created_at_utc <= @created_before_utc
             ORDER BY sequence_number
@@ -422,5 +464,6 @@ public sealed partial class PostgresStore
             reader.GetString(7),
             reader.GetString(8),
             reader.IsDBNull(9) ? null : reader.GetString(9),
-            reader.GetString(10));
+            reader.GetString(10),
+            reader.IsDBNull(11) ? SeedData.DefaultTenantId : reader.GetString(11));
 }

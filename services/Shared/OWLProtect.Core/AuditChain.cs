@@ -12,7 +12,8 @@ public sealed record AuditEventDraft(
     string TargetId,
     DateTimeOffset CreatedAtUtc,
     string Outcome,
-    string Detail);
+    string Detail,
+    string TenantId = SeedData.DefaultTenantId);
 
 public static class AuditChain
 {
@@ -38,8 +39,9 @@ public static class AuditChain
         string targetId,
         DateTimeOffset createdAtUtc,
         string outcome,
-        string detail) =>
-        CreateNext(previous, new AuditEventDraft(id, actor, action, targetType, targetId, createdAtUtc, outcome, detail));
+        string detail,
+        string tenantId = SeedData.DefaultTenantId) =>
+        CreateNext(previous, new AuditEventDraft(id, actor, action, targetType, targetId, createdAtUtc, outcome, detail, tenantId));
 
     public static AuditEvent CreateNext(
         long previousSequence,
@@ -51,10 +53,11 @@ public static class AuditChain
         string targetId,
         DateTimeOffset createdAtUtc,
         string outcome,
-        string detail)
+        string detail,
+        string tenantId = SeedData.DefaultTenantId)
     {
         var sequence = previousSequence + 1;
-        var eventHash = ComputeHash(sequence, actor, action, targetType, targetId, createdAtUtc, outcome, detail, previousHash);
+        var eventHash = ComputeHash(sequence, actor, action, targetType, targetId, createdAtUtc, outcome, detail, previousHash, tenantId);
 
         return new AuditEvent(
             id,
@@ -67,7 +70,8 @@ public static class AuditChain
             outcome,
             detail,
             previousHash,
-            eventHash);
+            eventHash,
+            tenantId);
     }
 
     public static AuditEvent CreateNext(AuditEvent? previous, AuditEventDraft draft) =>
@@ -81,7 +85,8 @@ public static class AuditChain
             draft.TargetId,
             draft.CreatedAtUtc,
             draft.Outcome,
-            draft.Detail);
+            draft.Detail,
+            draft.TenantId);
 
     public static string ComputeHash(
         long sequence,
@@ -92,7 +97,8 @@ public static class AuditChain
         DateTimeOffset createdAtUtc,
         string outcome,
         string detail,
-        string? previousHash)
+        string? previousHash,
+        string tenantId = SeedData.DefaultTenantId)
     {
         var payload = string.Join('\n',
             sequence.ToString(CultureInfo.InvariantCulture),
@@ -103,6 +109,7 @@ public static class AuditChain
             createdAtUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
             outcome,
             detail,
+            tenantId,
             previousHash ?? string.Empty);
 
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
