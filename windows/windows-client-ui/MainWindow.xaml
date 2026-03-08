@@ -3,55 +3,97 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:local="using:OWLProtect.WindowsClientUi"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Title="OWLProtect Client">
-    <Grid Background="{StaticResource SurfaceBrush}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <ScrollViewer Background="{StaticResource SurfaceBrush}">
+        <Grid Padding="28" RowSpacing="18">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-        <StackPanel Padding="28" Spacing="10">
-            <TextBlock Text="OWLProtect Client" FontSize="28" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
-            <TextBlock Text="Windows-first enterprise VPN with silent SSO and live diagnostics." Foreground="{StaticResource MutedTextBrush}" />
-        </StackPanel>
-
-        <Grid Grid.Row="1" Padding="28" ColumnSpacing="18">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-
-            <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="22" Padding="22">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="Connection Status" FontSize="24" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+            <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="24">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="OWLProtect Client" FontSize="30" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="Service-owned Windows VPN workflow with silent sign-in, posture collection, session recovery, and support exports." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button x:Name="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
                         <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
                         <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
+                        <Button x:Name="SignOutButton" Content="Sign Out" Click="SignOutButton_Click" />
+                        <Button x:Name="SupportBundleButton" Content="Export Support Bundle" Click="SupportBundleButton_Click" />
                     </StackPanel>
-                    <TextBlock x:Name="GatewayText" Text="Gateway: unassigned" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock x:Name="DiagnosticScopeText" Text="Diagnostic scope: Authentication" Foreground="{StaticResource MutedTextBrush}" />
-                    <TextBlock x:Name="MetricsText" Text="Latency: -- ms | Jitter: -- ms | Signal: --% | Throughput: -- Mbps" Foreground="{StaticResource TextBrush}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="22" Padding="22">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="Support Panel" FontSize="22" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock x:Name="DiagnosticDetailText" Text="Current gateway, posture state, diagnostics timeline, and export flow will be surfaced here." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
-                    <TextBlock x:Name="FailoverText" Text="Failover chain: --" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock x:Name="TimelineText" Text="Recent activity: waiting for the first tunnel event." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
-                </StackPanel>
+            <Grid Grid.Row="1" ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="22">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Session" FontSize="22" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="IdentityText" Text="User: not signed in" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DeviceText" Text="Device: unregistered" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GatewayText" Text="Gateway: unassigned" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="AuthModeText" Text="Auth mode: NotConnected" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="RecoveryText" Text="Recovery: Idle" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="RegistrationText" Text="Registration: Pending | Enrollment: Bootstrap" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ExpiryText" Text="Session revalidate: -- | Access token: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="PolicyText" Text="Policy: unassigned" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="RoutesText" Text="Routes: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DnsText" Text="DNS zones: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="PortsText" Text="Ports: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="22">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Live Diagnostics" FontSize="22" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="DiagnosticScopeText" Text="Diagnostic scope: Authentication | State: AuthExpired" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="MetricsText" Text="Latency: -- ms | Jitter: -- ms | Signal: --% | Throughput: -- Mbps" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="FailoverText" Text="Failover chain: --" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DiagnosticDetailText" Text="Current gateway, posture state, diagnostics timeline, and recovery hints will surface here." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LastErrorText" Text="Last error: none" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LastUpdatedText" Text="Last updated: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Row="2" ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="22">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Posture" FontSize="22" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="PostureSummaryText" Text="Managed: no | Compliant: no | Score: 0" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="PostureSignalsText" Text="Signals: BitLocker off | Defender off | Firewall off | Secure Boot off | Tamper off" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ComplianceReasonsText" Text="Compliance reasons: posture_not_collected" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="OsText" Text="OS: --" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="22">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Support" FontSize="22" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="SupportBundleText" Text="Support bundle: not exported" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TimelineText" Text="Recent activity: waiting for the first tunnel event." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="3" Padding="18" Background="#131B1F" CornerRadius="18">
+                <TextBlock Text="Named-pipe service host: owlprotect-client | IPC protocol v1" Foreground="{StaticResource MutedTextBrush}" />
             </Border>
         </Grid>
-
-        <Border Grid.Row="2" Padding="20" Background="#1D1728">
-            <TextBlock Text="Named-pipe service host: owlprotect-client" Foreground="{StaticResource MutedTextBrush}" />
-        </Border>
-    </Grid>
+    </ScrollViewer>
 </Window>

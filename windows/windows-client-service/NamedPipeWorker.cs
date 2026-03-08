@@ -31,24 +31,75 @@ public sealed class PipeProtocolServer(
                 continue;
             }
 
-            var command = JsonSerializer.Deserialize<PipeCommand>(payload);
-            if (command is null)
+            PipeResponse response;
+            try
             {
-                await writer.WriteLineAsync("{\"error\":\"Invalid payload.\"}");
-                continue;
+                var request = JsonSerializer.Deserialize<PipeRequest>(payload);
+                response = request is null
+                    ? BuildResponse(new PipeRequest(PipeProtocol.Version, Guid.NewGuid().ToString("n"), PipeProtocol.StatusCommand), success: false, errorCode: "invalid_payload", errorMessage: "The IPC payload could not be deserialized.")
+                    : await HandleRequestAsync(request, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Failed to process an IPC request.");
+                response = BuildResponse(
+                    new PipeRequest(PipeProtocol.Version, Guid.NewGuid().ToString("n"), PipeProtocol.StatusCommand),
+                    success: false,
+                    errorCode: "pipe_error",
+                    errorMessage: exception.Message);
             }
 
-            var response = command.Command.ToLowerInvariant() switch
-            {
-                "status" => state.GetStatus(),
-                "connect" => state.Connect(command.SilentSsoPreferred),
-                "disconnect" => state.Disconnect(),
-                _ => state.GetStatus() with { UserMessage = "Unknown command received by service." }
-            };
-
-            logger.LogInformation("Handled pipe command {Command}.", command.Command);
             await writer.WriteLineAsync(JsonSerializer.Serialize(response));
         }
     }
-}
 
+    private async Task<PipeResponse> HandleRequestAsync(PipeRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ProtocolVersion != PipeProtocol.Version)
+        {
+            return BuildResponse(
+                request,
+                success: false,
+                errorCode: "unsupported_protocol",
+                errorMessage: $"IPC version {request.ProtocolVersion} is not supported.");
+        }
+
+        var normalizedCommand = request.Command.Trim().ToLowerInvariant();
+        return normalizedCommand switch
+        {
+            PipeProtocol.StatusCommand => BuildResponse(request, success: true),
+            PipeProtocol.ConnectCommand => BuildResponse(request, await state.ConnectAsync(request.SilentSsoPreferred, cancellationToken), success: true),
+            PipeProtocol.DisconnectCommand => BuildResponse(request, await state.DisconnectAsync(cancellationToken), success: true),
+            PipeProtocol.SignOutCommand => BuildResponse(request, await state.SignOutAsync(cancellationToken), success: true),
+            PipeProtocol.SupportBundleCommand => BuildSupportBundleResponse(request, await state.ExportSupportBundleAsync(cancellationToken)),
+            _ => BuildResponse(
+                request,
+                success: false,
+                errorCode: "unknown_command",
+                errorMessage: $"'{request.Command}' is not a supported client command.")
+        };
+    }
+
+    private PipeResponse BuildResponse(PipeRequest request, bool success, string? errorCode = null, string? errorMessage = null) =>
+        BuildResponse(request, state.GetStatus(), success, errorCode, errorMessage);
+
+    private static PipeResponse BuildResponse(PipeRequest request, ClientStatus status, bool success, string? errorCode = null, string? errorMessage = null) =>
+        new(
+            PipeProtocol.Version,
+            string.IsNullOrWhiteSpace(request.RequestId) ? Guid.NewGuid().ToString("n") : request.RequestId,
+            success,
+            status,
+            errorCode,
+            errorMessage,
+            ExportPath: null);
+
+    private static PipeResponse BuildSupportBundleResponse(PipeRequest request, (ClientStatus Status, string ExportPath) exportResult) =>
+        new(
+            PipeProtocol.Version,
+            string.IsNullOrWhiteSpace(request.RequestId) ? Guid.NewGuid().ToString("n") : request.RequestId,
+            Success: true,
+            exportResult.Status,
+            ErrorCode: null,
+            ErrorMessage: null,
+            ExportPath: exportResult.ExportPath);
+}
