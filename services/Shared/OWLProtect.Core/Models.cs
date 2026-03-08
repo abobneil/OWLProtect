@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OWLProtect.Core;
 
 public enum AdminRole
@@ -39,6 +41,7 @@ public sealed record User(
 public sealed record AdminAccount(
     string Id,
     string Username,
+    [property: JsonIgnore]
     string Password,
     AdminRole Role,
     bool MustChangePassword,
@@ -171,4 +174,3 @@ public sealed record BootstrapStatus(
     bool RequiresMfaEnrollment,
     bool TestUserEnabled,
     DateTimeOffset? TestUserAutoDisableAtUtc);
-

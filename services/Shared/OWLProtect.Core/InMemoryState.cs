@@ -4,6 +4,7 @@ namespace OWLProtect.Core;
 
 public sealed class InMemoryState :
     IBootstrapService,
+    IDashboardQueryService,
     IAdminRepository,
     IUserRepository,
     IDeviceRepository,
@@ -69,7 +70,7 @@ public sealed class InMemoryState :
         lock (_gate)
         {
             if (!string.Equals(username, _defaultAdmin.Username, StringComparison.OrdinalIgnoreCase) ||
-                password != _defaultAdmin.Password)
+                !PasswordProtector.Verify(password, _defaultAdmin.Password))
             {
                 throw new InvalidOperationException("Invalid admin credentials.");
             }
@@ -111,7 +112,7 @@ public sealed class InMemoryState :
 
             _defaultAdmin = _defaultAdmin with
             {
-                Password = newPassword,
+                Password = PasswordProtector.Hash(newPassword),
                 MustChangePassword = false
             };
 
@@ -229,6 +230,136 @@ public sealed class InMemoryState :
             device.Country,
             device.PublicIp,
             device.ConnectionState)).ToArray();
+
+    public User UpsertUser(User user)
+    {
+        lock (_gate)
+        {
+            var index = _users.FindIndex(item => item.Id == user.Id);
+            if (index >= 0)
+            {
+                _users[index] = user;
+            }
+            else
+            {
+                _users.Add(user);
+            }
+
+            AddAudit("admin", "upsert-user", "user", user.Id, "success", "User record created or updated.");
+            return user;
+        }
+    }
+
+    public void DeleteUser(string userId)
+    {
+        lock (_gate)
+        {
+            _users.RemoveAll(user => user.Id == userId);
+            _sessions.RemoveAll(session => session.UserId == userId);
+            AddAudit("admin", "delete-user", "user", userId, "success", "User record deleted.");
+        }
+    }
+
+    public Device UpsertDevice(Device device)
+    {
+        lock (_gate)
+        {
+            var index = _devices.FindIndex(item => item.Id == device.Id);
+            if (index >= 0)
+            {
+                _devices[index] = device;
+            }
+            else
+            {
+                _devices.Add(device);
+            }
+
+            AddAudit("admin", "upsert-device", "device", device.Id, "success", "Device record created or updated.");
+            return device;
+        }
+    }
+
+    public void DeleteDevice(string deviceId)
+    {
+        lock (_gate)
+        {
+            _devices.RemoveAll(device => device.Id == deviceId);
+            _sessions.RemoveAll(session => session.DeviceId == deviceId);
+            _healthSamples.RemoveAll(sample => sample.DeviceId == deviceId);
+            AddAudit("admin", "delete-device", "device", deviceId, "success", "Device record deleted.");
+        }
+    }
+
+    public void DeleteGateway(string gatewayId)
+    {
+        lock (_gate)
+        {
+            _gateways.RemoveAll(gateway => gateway.Id == gatewayId);
+            _sessions.RemoveAll(session => session.GatewayId == gatewayId);
+            AddAudit("admin", "delete-gateway", "gateway", gatewayId, "success", "Gateway record deleted.");
+        }
+    }
+
+    public PolicyRule UpsertPolicy(PolicyRule policy)
+    {
+        lock (_gate)
+        {
+            var index = _policies.FindIndex(item => item.Id == policy.Id);
+            if (index >= 0)
+            {
+                _policies[index] = policy;
+            }
+            else
+            {
+                _policies.Add(policy);
+            }
+
+            AddAudit("admin", "upsert-policy", "policy", policy.Id, "success", "Policy record created or updated.");
+            return policy;
+        }
+    }
+
+    public void DeletePolicy(string policyId)
+    {
+        lock (_gate)
+        {
+            _policies.RemoveAll(policy => policy.Id == policyId);
+            AddAudit("admin", "delete-policy", "policy", policyId, "success", "Policy record deleted.");
+        }
+    }
+
+    public TunnelSession UpsertSession(TunnelSession session)
+    {
+        lock (_gate)
+        {
+            var index = _sessions.FindIndex(item => item.Id == session.Id);
+            if (index >= 0)
+            {
+                _sessions[index] = session;
+            }
+            else
+            {
+                _sessions.Add(session);
+            }
+
+            AddAudit("admin", "upsert-session", "session", session.Id, "success", "Session record created or updated.");
+            return session;
+        }
+    }
+
+    public bool RevokeSession(string sessionId, string actor, string reason)
+    {
+        lock (_gate)
+        {
+            var removed = _sessions.RemoveAll(session => session.Id == sessionId) > 0;
+            if (removed)
+            {
+                AddAudit(actor, "revoke-session", "session", sessionId, "success", reason);
+            }
+
+            return removed;
+        }
+    }
 
     public IReadOnlyList<AdminAccount> ListAdmins()
     {

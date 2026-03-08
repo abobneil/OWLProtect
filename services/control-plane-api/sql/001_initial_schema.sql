@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS auth_providers (
     type TEXT NOT NULL,
     issuer TEXT NOT NULL,
     client_id TEXT NOT NULL,
-    mfa_claim_paths TEXT NOT NULL,
+    mfa_claim_paths TEXT[] NOT NULL DEFAULT '{}',
     silent_sso_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -33,20 +33,11 @@ CREATE TABLE IF NOT EXISTS users (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     test_account BOOLEAN NOT NULL DEFAULT FALSE,
     provider_type TEXT NOT NULL,
+    group_ids TEXT[] NOT NULL DEFAULT '{}',
+    policy_ids TEXT[] NOT NULL DEFAULT '{}',
+    enabled_at_utc TIMESTAMPTZ NULL,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS groups (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS user_groups (
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, group_id)
 );
 
 CREATE TABLE IF NOT EXISTS devices (
@@ -66,6 +57,8 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS gateway_pools (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
+    regions TEXT[] NOT NULL DEFAULT '{}',
+    gateway_ids TEXT[] NOT NULL DEFAULT '{}',
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -82,43 +75,15 @@ CREATE TABLE IF NOT EXISTS gateways (
     last_heartbeat_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS gateway_pool_members (
-    gateway_pool_id TEXT NOT NULL REFERENCES gateway_pools(id) ON DELETE CASCADE,
-    gateway_id TEXT NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
-    PRIMARY KEY (gateway_pool_id, gateway_id)
-);
-
 CREATE TABLE IF NOT EXISTS policies (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
+    cidrs TEXT[] NOT NULL DEFAULT '{}',
+    dns_zones TEXT[] NOT NULL DEFAULT '{}',
+    ports INTEGER[] NOT NULL DEFAULT '{}',
     mode TEXT NOT NULL,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS policy_routes (
-    policy_id TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    cidr TEXT NOT NULL,
-    PRIMARY KEY (policy_id, cidr)
-);
-
-CREATE TABLE IF NOT EXISTS policy_dns_zones (
-    policy_id TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    dns_zone TEXT NOT NULL,
-    PRIMARY KEY (policy_id, dns_zone)
-);
-
-CREATE TABLE IF NOT EXISTS policy_ports (
-    policy_id TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    port INTEGER NOT NULL,
-    PRIMARY KEY (policy_id, port)
-);
-
-CREATE TABLE IF NOT EXISTS policy_targets (
-    policy_id TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    target_type TEXT NOT NULL,
-    target_id TEXT NOT NULL,
-    PRIMARY KEY (policy_id, target_type, target_id)
 );
 
 CREATE TABLE IF NOT EXISTS user_sessions (

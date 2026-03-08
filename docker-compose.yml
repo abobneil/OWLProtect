@@ -21,6 +21,9 @@ services:
       dockerfile: services/control-plane-api/Dockerfile
     environment:
       ASPNETCORE_URLS: ${OWLP_CONTROL_PLANE_URLS:-http://+:5180}
+      Persistence__Provider: ${OWLP_PERSISTENCE_PROVIDER:-postgres}
+      Persistence__ConnectionString: Host=postgres;Port=5432;Database=${OWLP_POSTGRES_DB:-owlprotect};Username=${OWLP_POSTGRES_USER:-owlprotect};Password=${OWLP_POSTGRES_PASSWORD:-owlprotect}
+      Persistence__SeedOnStartup: ${OWLP_PERSISTENCE_SEED_ON_STARTUP:-true}
     ports:
       - "${OWLP_CONTROL_PLANE_PORT:-5180}:5180"
     depends_on:
