@@ -35,6 +35,9 @@ jobs:
       - name: Build workspaces
         run: npm run build
 
+      - name: Validate foundation conventions
+        run: npm run validate:foundation
+
   docker-build:
     name: Docker Build (${{ matrix.target.name }})
     runs-on: ubuntu-latest

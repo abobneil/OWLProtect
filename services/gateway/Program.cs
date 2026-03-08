@@ -19,7 +19,7 @@ public sealed class GatewayControlPlaneClient(HttpClient httpClient)
 {
     public async Task PublishHeartbeatAsync(Gateway heartbeat, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.PostAsJsonAsync("/gateways/heartbeat", heartbeat, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync(ControlPlaneApiConventions.Path("/gateways/heartbeat"), heartbeat, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 }
@@ -75,4 +75,3 @@ public sealed class GatewayHeartbeatService(
             latency);
     }
 }
-

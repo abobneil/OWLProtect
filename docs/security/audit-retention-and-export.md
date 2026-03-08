@@ -22,7 +22,7 @@ This document defines the current P0 expectations for control-plane audit durabi
 - `AuditRetention__RetentionDays` defines how old audit records must be before export and pruning are allowed.
 - `AuditRetention__ExportBatchSize` caps each retention batch so large histories are exported in deterministic slices.
 - `AuditRetention__CheckIntervalHours` controls how often the control plane checks for eligible audit data.
-- Operators can trigger an immediate privileged retention cycle with `POST /audit/retention/run`.
+- Operators can trigger an immediate privileged retention cycle with `POST /api/v1/audit/retention/run`.
 
 ## Operational expectations
 

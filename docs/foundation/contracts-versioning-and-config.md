@@ -5,6 +5,7 @@ This document defines the repository-level conventions for shared contracts, ext
 ## Shared Contracts
 
 - `packages/contracts` is the source of truth for TypeScript contracts used by the admin portal and any future TypeScript clients or tooling.
+- `packages/contracts` also exports the current control-plane API and WebSocket prefixes so TypeScript consumers can follow the same versioned route contract.
 - The .NET services keep explicit C# models and DTOs instead of generated code. Producers and consumers must map at the API boundary rather than sharing runtime-specific implementation types across languages.
 - Any HTTP or WebSocket shape consumed by the admin portal should be added to `packages/contracts` before or alongside the service change that produces it.
 - Breaking contract changes must update all producers and consumers in the same pull request until a separately published contract package is introduced.
@@ -16,7 +17,7 @@ This document defines the repository-level conventions for shared contracts, ext
 - Unversioned infrastructure endpoints such as `/health` may remain unversioned for liveness and container orchestration.
 - Additive response changes are allowed within `v1` when existing fields keep their meaning and compatibility.
 - Breaking route, field, or semantics changes require a new version path rather than silent mutation of `v1`.
-- Existing scaffold endpoints that are currently unversioned should migrate under `/api/v1` as feature work lands; temporary compatibility aliases are acceptable during the transition.
+- Control-plane HTTP and WebSocket application surfaces now live under `/api/v1`, including `/api/v1/ws/...` for streaming endpoints.
 
 ## Environment Configuration Layout
 
@@ -69,3 +70,4 @@ The PostgreSQL, Redis, and admin portal port variables are deployment inputs onl
 - Do not commit environment-specific secrets or production values.
 - When adding a new public API surface, define the transport shape in `packages/contracts` and place the route under the current versioned prefix.
 - When changing an existing public contract, document whether the change is additive or breaking in the pull request.
+- Run `npm run validate:foundation` after touching repository governance files, environment examples, or foundation documentation so CI and the local examples stay aligned.

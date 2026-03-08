@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using OWLProtect.Core;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddHttpClient<TestUserControlPlaneClient>(client =>
@@ -16,14 +17,14 @@ public sealed record UserView(string Id, string Username, bool Enabled);
 public sealed class TestUserControlPlaneClient(HttpClient httpClient)
 {
     public async Task<BootstrapStatus?> GetBootstrapStatusAsync(CancellationToken cancellationToken) =>
-        await httpClient.GetFromJsonAsync<BootstrapStatus>("/bootstrap", cancellationToken);
+        await httpClient.GetFromJsonAsync<BootstrapStatus>(ControlPlaneApiConventions.Path("/bootstrap"), cancellationToken);
 
     public async Task<IReadOnlyList<UserView>> GetUsersAsync(CancellationToken cancellationToken) =>
-        await httpClient.GetFromJsonAsync<List<UserView>>("/users", cancellationToken) ?? [];
+        await httpClient.GetFromJsonAsync<List<UserView>>(ControlPlaneApiConventions.Path("/users"), cancellationToken) ?? [];
 
     public async Task DisableUserAsync(string userId, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.PostAsync($"/users/{userId}/disable", content: null, cancellationToken);
+        using var response = await httpClient.PostAsync(ControlPlaneApiConventions.Path($"/users/{userId}/disable"), content: null, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 }

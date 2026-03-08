@@ -86,9 +86,12 @@ app.Use(async (context, next) =>
 app.UseWebSockets();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-app.MapGet("/bootstrap", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.GetBootstrapStatus()));
+var api = app.MapGroup(ControlPlaneApiConventions.ApiPrefix);
+var webSocketApi = api.MapGroup("/ws");
 
-app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
+api.MapGet("/bootstrap", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.GetBootstrapStatus()));
+
+api.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
 {
     try
     {
@@ -102,7 +105,7 @@ app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService b
     }
 });
 
-app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
+api.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
 {
     try
     {
@@ -116,7 +119,7 @@ app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService boo
     }
 });
 
-app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, IAuthProviderConfigRepository authProviderConfigRepository, IUserRepository userRepository, IPlatformSessionStore sessionStore, IAuditWriter auditWriter, CancellationToken cancellationToken) =>
+api.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, IAuthProviderConfigRepository authProviderConfigRepository, IUserRepository userRepository, IPlatformSessionStore sessionStore, IAuditWriter auditWriter, CancellationToken cancellationToken) =>
 {
     try
     {
@@ -150,7 +153,7 @@ app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
     }
 });
 
-app.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSessionStore sessionStore, IAdminRepository adminRepository, IUserRepository userRepository) =>
+api.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSessionStore sessionStore, IAdminRepository adminRepository, IUserRepository userRepository) =>
 {
     try
     {
@@ -163,7 +166,7 @@ app.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSe
     }
 });
 
-var sessionGroup = app.MapGroup(string.Empty);
+var sessionGroup = api.MapGroup(string.Empty);
 sessionGroup.AddEndpointFilterFactory(ControlPlaneSecurity.RequireSession);
 sessionGroup.MapGet("/auth/me", (HttpContext context) =>
 {
@@ -182,7 +185,7 @@ sessionGroup.MapPost("/auth/session/revoke", (HttpContext context, IPlatformSess
     return revoked ? Results.NoContent() : Results.NotFound();
 });
 
-var userSessionGroup = app.MapGroup(string.Empty);
+var userSessionGroup = api.MapGroup(string.Empty);
 userSessionGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireUser(factoryContext, next, "user.session.issue-client"));
 userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSessionIssueRequest request, IDeviceRepository deviceRepository, IPlatformSessionStore sessionStore) =>
@@ -221,7 +224,7 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
         device));
 });
 
-var bootstrapAdminGroup = app.MapGroup(string.Empty);
+var bootstrapAdminGroup = api.MapGroup(string.Empty);
 bootstrapAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.bootstrap.manage", AdminRole.SuperAdmin, requireCompliantAdmin: false, requireStepUp: false));
 bootstrapAdminGroup.MapPost("/admins/default/password", (HttpContext context, PasswordChangeRequest request, IBootstrapService bootstrapService) =>
@@ -237,7 +240,7 @@ bootstrapAdminGroup.MapPost("/admins/default/password", (HttpContext context, Pa
 });
 bootstrapAdminGroup.MapPost("/admins/default/mfa", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.EnrollAdminMfa()));
 
-var compliantAdminGroup = app.MapGroup(string.Empty);
+var compliantAdminGroup = api.MapGroup(string.Empty);
 compliantAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.read", AdminRole.ReadOnly, requireCompliantAdmin: true, requireStepUp: false));
 compliantAdminGroup.MapPost("/auth/step-up", (HttpContext context, StepUpRequest request, IAdminRepository adminRepository, IPlatformSessionStore sessionStore) =>
@@ -442,7 +445,7 @@ compliantAdminGroup.MapGet("/audit/export", (IAuditRepository auditRepository, D
     return Results.Ok(new AuditExportResponse(DateTimeOffset.UtcNow, before, events.Count, events));
 });
 
-var operatorAdminGroup = app.MapGroup(string.Empty);
+var operatorAdminGroup = api.MapGroup(string.Empty);
 operatorAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.operator.write", AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: false));
 operatorAdminGroup.MapPost("/users", (HttpContext context, UserUpsertRequest request, IUserRepository userRepository) =>
@@ -518,7 +521,7 @@ operatorAdminGroup.MapPost("/sessions", (SessionUpsertRequest request, ISessionR
     return Results.Ok(sessionRepository.UpsertSession(upsert));
 });
 
-var superAdminPrivilegedGroup = app.MapGroup(string.Empty);
+var superAdminPrivilegedGroup = api.MapGroup(string.Empty);
 superAdminPrivilegedGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.super.privileged.write", AdminRole.SuperAdmin, requireCompliantAdmin: true, requireStepUp: true));
 superAdminPrivilegedGroup.MapPost("/admins", (HttpContext context, AdminUpsertRequest request, IAdminRepository adminRepository) =>
@@ -563,7 +566,7 @@ superAdminPrivilegedGroup.MapDelete("/admins/{adminId}", (HttpContext context, s
     }
 });
 
-var privilegedAdminGroup = app.MapGroup(string.Empty);
+var privilegedAdminGroup = api.MapGroup(string.Empty);
 privilegedAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, "admin.privileged.write", AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: true));
 privilegedAdminGroup.MapPost("/users/{userId}/disable", (HttpContext context, string userId, IUserRepository userRepository, IPlatformSessionStore platformSessionStore) =>
@@ -659,13 +662,13 @@ privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionServic
 });
 
 // Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
-app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
+api.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
 
-MapSocket<IDashboardQueryService, DashboardSnapshot>(app, "/ws/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly, "ws.dashboard.read");
-MapSocket<IAlertRepository, IReadOnlyList<Alert>>(app, "/ws/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
-MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(app, "/ws/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");
-MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(app, "/ws/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly, "ws.health.read");
-MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(app, "/ws/client-session", service => service.ListSessions(), AdminRole.ReadOnly, "ws.sessions.read");
+MapSocket<IDashboardQueryService, DashboardSnapshot>(webSocketApi, "/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly, "ws.dashboard.read");
+MapSocket<IAlertRepository, IReadOnlyList<Alert>>(webSocketApi, "/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
+MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(webSocketApi, "/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");
+MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(webSocketApi, "/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly, "ws.health.read");
+MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(webSocketApi, "/client-session", service => service.ListSessions(), AdminRole.ReadOnly, "ws.sessions.read");
 
 app.Run();
 
@@ -704,14 +707,14 @@ static bool IsKnownProvider(string provider) =>
     string.Equals(provider, "oidc", StringComparison.OrdinalIgnoreCase);
 
 static void MapSocket<TService, TPayload>(
-    WebApplication app,
+    IEndpointRouteBuilder routes,
     string path,
     Func<TService, TPayload> payloadFactory,
     AdminRole minimumRole,
     string policyName)
     where TService : notnull
 {
-    app.Map(path, async (HttpContext context, TService service) =>
+    routes.Map(path, async (HttpContext context, TService service) =>
     {
         var requirement = ControlPlaneAuthorizationPolicies.Admin(policyName, minimumRole, requireCompliantAdmin: true, requireStepUp: false);
         if (!ControlPlaneSecurity.TryAuthorize(context, requirement, out var failure))

@@ -21,6 +21,7 @@ Use these baseline validation commands before opening a pull request:
 ```bash
 npm run typecheck
 npm run build
+npm run validate:foundation
 ```
 
 Build the container images affected by your change:

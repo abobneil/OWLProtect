@@ -11,7 +11,7 @@
     "dev:admin": "npm run dev --workspace @owlprotect/admin-portal",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "validate:foundation": "node ./scripts/validate-foundation.mjs"
   }
 }
-

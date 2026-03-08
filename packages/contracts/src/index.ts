@@ -1,5 +1,8 @@
 export type AdminRole = "SuperAdmin" | "Operator" | "ReadOnly";
 export type PlatformSessionKind = "Admin" | "User" | "Client";
+export const CONTROL_PLANE_API_VERSION = "v1";
+export const CONTROL_PLANE_API_PREFIX = `/api/${CONTROL_PLANE_API_VERSION}`;
+export const CONTROL_PLANE_SOCKET_PREFIX = `${CONTROL_PLANE_API_PREFIX}/ws`;
 
 export type HealthSeverity = "green" | "yellow" | "red";
 
