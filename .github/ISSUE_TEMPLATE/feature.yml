@@ -1,0 +1,97 @@
+name: Feature request
+description: Propose a new feature or implementation slice.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the repository taxonomy when triaging this issue. After creation, apply one `area:*`, one `kind:*`, one `priority:*`, and the appropriate `wave:*` label. Add `status:blocked` or `status:needs-decision` only when needed. The selected area should match the review ownership defined in `CODEOWNERS`.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      description: Match this to the `area:*` label you expect to use.
+      options:
+        - area:foundation
+        - area:control-plane
+        - area:identity
+        - area:admin-portal
+        - area:gateways
+        - area:windows-client
+        - area:policy-engine
+        - area:operations
+        - area:security
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Work type
+      description: Match this to the `kind:*` label you expect to use.
+      options:
+        - kind:feature
+        - kind:architecture
+        - kind:security
+        - kind:operations
+        - kind:test
+        - kind:docs
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Match this to the `priority:*` label you expect to use.
+      options:
+        - priority:p0
+        - priority:p1
+        - priority:p2
+    validations:
+      required: true
+  - type: dropdown
+    id: wave
+    attributes:
+      label: Roadmap wave
+      description: Match this to the `wave:*` label you expect to use.
+      options:
+        - wave:1-foundation-auth
+        - wave:2-core-platform
+        - wave:3-product-workflows
+        - wave:4-hardening-release
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: Describe the user, operator, or platform problem.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the intended behavior or implementation slice.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and dependencies
+      description: Call out related issues, upstream dependencies, or blockers.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable completion conditions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I will add `status:blocked` only when execution is blocked by another dependency.
+        - label: I will add `status:needs-decision` only when product or architecture direction is unresolved.

@@ -1,30 +1,28 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: owlprotect
-      POSTGRES_USER: owlprotect
-      POSTGRES_PASSWORD: owlprotect
+      POSTGRES_DB: ${OWLP_POSTGRES_DB:-owlprotect}
+      POSTGRES_USER: ${OWLP_POSTGRES_USER:-owlprotect}
+      POSTGRES_PASSWORD: ${OWLP_POSTGRES_PASSWORD:-owlprotect}
     ports:
-      - "5432:5432"
+      - "${OWLP_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "${OWLP_REDIS_PORT:-6379}:6379"
 
   control-plane-api:
     build:
       context: .
       dockerfile: services/control-plane-api/Dockerfile
     environment:
-      ASPNETCORE_URLS: http://+:5180
+      ASPNETCORE_URLS: ${OWLP_CONTROL_PLANE_URLS:-http://+:5180}
     ports:
-      - "5180:5180"
+      - "${OWLP_CONTROL_PLANE_PORT:-5180}:5180"
     depends_on:
       - postgres
       - redis
@@ -34,10 +32,10 @@ services:
       context: .
       dockerfile: services/gateway/Dockerfile
     environment:
-      ControlPlane__BaseUrl: http://control-plane-api:5180
-      Gateway__Id: gw-1
-      Gateway__Name: us-east-core-1
-      Gateway__Region: us-east
+      ControlPlane__BaseUrl: ${OWLP_CONTROL_PLANE_BASE_URL:-http://control-plane-api:5180}
+      Gateway__Id: ${OWLP_GATEWAY_ID:-gw-1}
+      Gateway__Name: ${OWLP_GATEWAY_NAME:-us-east-core-1}
+      Gateway__Region: ${OWLP_GATEWAY_REGION:-us-east}
     depends_on:
       - control-plane-api
 
@@ -46,7 +44,7 @@ services:
       context: .
       dockerfile: services/scheduler/Dockerfile
     environment:
-      ControlPlane__BaseUrl: http://control-plane-api:5180
+      ControlPlane__BaseUrl: ${OWLP_CONTROL_PLANE_BASE_URL:-http://control-plane-api:5180}
     depends_on:
       - control-plane-api
 
@@ -55,10 +53,9 @@ services:
       context: .
       dockerfile: apps/admin-portal/Dockerfile
     ports:
-      - "4173:80"
+      - "${OWLP_ADMIN_PORTAL_PORT:-4173}:80"
     depends_on:
       - control-plane-api
 
 volumes:
   postgres-data:
-

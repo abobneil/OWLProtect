@@ -1,0 +1,93 @@
+name: Bug report
+description: Report a defect in an existing workflow or implementation.
+title: "[Bug]: "
+labels:
+  - bug
+  - kind:defect
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the repository taxonomy when triaging this issue. This template applies `kind:defect`. After creation, apply one `area:*`, one `priority:*`, and the appropriate `wave:*` label. Add `status:blocked` or `status:needs-decision` only when needed. The selected area should match the review ownership defined in `CODEOWNERS`.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      description: Match this to the `area:*` label you expect to use.
+      options:
+        - area:foundation
+        - area:control-plane
+        - area:identity
+        - area:admin-portal
+        - area:gateways
+        - area:windows-client
+        - area:policy-engine
+        - area:operations
+        - area:security
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Match this to the `priority:*` label you expect to use.
+      options:
+        - priority:p0
+        - priority:p1
+        - priority:p2
+    validations:
+      required: true
+  - type: dropdown
+    id: wave
+    attributes:
+      label: Roadmap wave
+      description: Match this to the `wave:*` label you expect to use.
+      options:
+        - wave:1-foundation-auth
+        - wave:2-core-platform
+        - wave:3-product-workflows
+        - wave:4-hardening-release
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the defect and affected workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal reproduction path.
+      placeholder: |
+        1. Start ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation and evidence
+      description: Logs, screenshots, stack traces, or failing commands.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I will only replace `kind:defect` if this issue was opened with the wrong template.
+        - label: I understand sensitive vulnerabilities should be reported through GitHub Security Advisories instead of a public issue.

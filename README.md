@@ -17,3 +17,9 @@ OWLProtect is a Windows-first enterprise VPN platform with:
 - `services/scheduler`: ASP.NET Core background scheduler
 - `windows/windows-client-service`: Windows service and named-pipe host
 - `windows/windows-client-ui`: WinUI 3 client shell
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local validation commands, pull request expectations, CODEOWNERS review guidance, and the backlog label taxonomy.
+
+See [docs/foundation/contracts-versioning-and-config.md](docs/foundation/contracts-versioning-and-config.md) for the current shared contract, API versioning, and environment configuration conventions.

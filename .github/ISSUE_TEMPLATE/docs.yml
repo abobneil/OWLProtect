@@ -1,0 +1,73 @@
+name: Documentation request
+description: Propose documentation, runbook, or contributor guidance work.
+title: "[Docs]: "
+labels:
+  - documentation
+  - kind:docs
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the repository taxonomy when triaging this issue. After creation, apply one `area:*`, one `kind:docs`, one `priority:*`, and the appropriate `wave:*` label. Add `status:blocked` or `status:needs-decision` only when needed. The selected area should match the review ownership defined in `CODEOWNERS`.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      description: Match this to the `area:*` label you expect to use.
+      options:
+        - area:foundation
+        - area:control-plane
+        - area:identity
+        - area:admin-portal
+        - area:gateways
+        - area:windows-client
+        - area:policy-engine
+        - area:operations
+        - area:security
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Match this to the `priority:*` label you expect to use.
+      options:
+        - priority:p0
+        - priority:p1
+        - priority:p2
+    validations:
+      required: true
+  - type: dropdown
+    id: wave
+    attributes:
+      label: Roadmap wave
+      description: Match this to the `wave:*` label you expect to use.
+      options:
+        - wave:1-foundation-auth
+        - wave:2-core-platform
+        - wave:3-product-workflows
+        - wave:4-hardening-release
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: Documentation gap
+      description: What guidance is missing or unclear?
+    validations:
+      required: true
+  - type: textarea
+    id: audience
+    attributes:
+      label: Audience
+      description: Who needs this documentation?
+      placeholder: Contributors, operators, reviewers, administrators...
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: What would make this documentation complete enough to close?
+    validations:
+      required: true

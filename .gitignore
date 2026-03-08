@@ -17,3 +17,6 @@ obj/
 *.tmp
 *.nupkg
 artifacts/
+.env
+.env.local
+.env.*.local

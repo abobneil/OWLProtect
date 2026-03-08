@@ -1,0 +1,19 @@
+# Repository-wide defaults
+* @abobneil
+
+# Workspace areas
+/apps/admin-portal/ @abobneil
+/packages/contracts/ @abobneil
+/packages/theme/ @abobneil
+/services/control-plane-api/ @abobneil
+/services/gateway/ @abobneil
+/services/scheduler/ @abobneil
+/services/Shared/ @abobneil
+/windows/windows-client-service/ @abobneil
+/windows/windows-client-ui/ @abobneil
+
+# Repository governance and automation
+/.github/ @abobneil
+/docker-compose.yml @abobneil
+/README.md @abobneil
+/CONTRIBUTING.md @abobneil
