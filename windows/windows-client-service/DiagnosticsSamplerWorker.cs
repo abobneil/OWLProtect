@@ -35,24 +35,24 @@ public sealed class DiagnosticsSamplerWorker(
                 var activeGateway = gateways.Single(gateway => string.Equals(gateway.Id, placement.GatewayId, StringComparison.Ordinal));
                 var diagnostics = GatewayDiagnostics.ClassifyDevice(
                     new Device(
-                        "device-local",
+                        current.DeviceId,
                         current.DeviceName,
                         "user-local",
-                        "New York",
-                        "United States",
-                        "203.0.113.10",
-                        Managed: true,
-                        Compliant: true,
-                        PostureScore: 96,
+                        "Unknown",
+                        "Unknown",
+                        "127.0.0.1",
+                        current.Posture.Managed,
+                        current.Posture.Compliant,
+                        current.Posture.PostureScore,
                         simulatedState,
                         sample.SampledAtUtc,
-                        RegistrationState: DeviceRegistrationState.Enrolled,
-                        EnrollmentKind: DeviceEnrollmentKind.ReEnrollment),
+                        RegistrationState: Enum.Parse<DeviceRegistrationState>(current.RegistrationState, ignoreCase: true),
+                        EnrollmentKind: Enum.Parse<DeviceEnrollmentKind>(current.EnrollmentKind, ignoreCase: true)),
                     sample,
                     new TunnelSession(
                         "session-local",
                         "user-local",
-                        "device-local",
+                        current.DeviceId,
                         placement.GatewayId,
                         DateTimeOffset.UtcNow,
                         8,
@@ -156,9 +156,9 @@ public sealed class DiagnosticsSamplerWorker(
         return [primary, secondary];
     }
 
-    private static string[] AppendTimeline(IReadOnlyList<string> existing, string entry) =>
+    private static IReadOnlyList<string> AppendTimeline(IReadOnlyList<string> existing, string entry) =>
         existing
             .Concat([entry])
-            .TakeLast(5)
+            .TakeLast(6)
             .ToArray();
 }

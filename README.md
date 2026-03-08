@@ -30,4 +30,6 @@ See [docs/security/audit-retention-and-export.md](docs/security/audit-retention-
 
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the current service-boundary overview and [docs/adr](docs/adr) for the accepted architecture decisions.
 
+See [docs/windows/windows-client.md](docs/windows/windows-client.md) for the current Windows client IPC, auth configuration, posture collection, and offline recovery behavior.
+
 See [.env.local.example](.env.local.example) and [.env.selfhosted.example](.env.selfhosted.example) for local and self-hosted deployment input examples.
