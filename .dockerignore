@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+dist
+**/dist
+bin
+obj
+coverage
+.vite
+.vs
+.idea

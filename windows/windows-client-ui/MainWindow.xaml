@@ -1,0 +1,55 @@
+<Window
+    x:Class="OWLProtect.WindowsClientUi.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:OWLProtect.WindowsClientUi"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="OWLProtect Client">
+    <Grid Background="{StaticResource SurfaceBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Padding="28" Spacing="10">
+            <TextBlock Text="OWLProtect Client" FontSize="28" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
+            <TextBlock Text="Windows-first enterprise VPN with silent SSO and live diagnostics." Foreground="{StaticResource MutedTextBrush}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" Padding="28" ColumnSpacing="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="22" Padding="22">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Connection Status" FontSize="24" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
+                        <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
+                        <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="MetricsText" Text="Latency: -- ms | Jitter: -- ms | Signal: --% | Throughput: -- Mbps" Foreground="{StaticResource TextBrush}" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="22" Padding="22">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Support Panel" FontSize="22" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="Current gateway, posture state, diagnostics timeline, and export flow will be surfaced here." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBlock Text="Traffic-light statuses remain consistent with the admin portal." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Padding="20" Background="#1D1728">
+            <TextBlock Text="Named-pipe service host: owlprotect-client" Foreground="{StaticResource MutedTextBrush}" />
+        </Border>
+    </Grid>
+</Window>
+

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@owlprotect/contracts": [
+        "../../packages/contracts/src/index.ts"
+      ],
+      "@owlprotect/theme": [
+        "../../packages/theme/src/index.ts"
+      ],
+      "@owlprotect/theme/*": [
+        "../../packages/theme/*"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

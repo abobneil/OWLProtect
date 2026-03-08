@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RootNamespace>OWLProtect.WindowsClientService</RootNamespace>
+    <UseWindowsService>true</UseWindowsService>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\services\Shared\OWLProtect.Core\OWLProtect.Core.csproj" />
+  </ItemGroup>
+</Project>
+

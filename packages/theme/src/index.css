@@ -1,0 +1,48 @@
+:root {
+  color-scheme: dark;
+  font-family: "Roboto", sans-serif;
+  --font-family-base: "Roboto", sans-serif;
+  --color-bg: #08070c;
+  --color-surface: #14111b;
+  --color-surface-2: #1d1728;
+  --color-surface-3: #261d34;
+  --color-border: #3d3350;
+  --color-text: #f4f2f8;
+  --color-text-muted: #aa9fbd;
+  --color-primary: #5f33a3;
+  --color-primary-strong: #7b4bd0;
+  --color-good: #22c55e;
+  --color-warn: #facc15;
+  --color-bad: #ef4444;
+  --color-map-land: #1f1b27;
+  --color-map-water: #0b1220;
+  --shadow-surface: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top right, rgba(123, 75, 208, 0.16), transparent 35%),
+    radial-gradient(circle at left center, rgba(95, 51, 163, 0.2), transparent 30%),
+    var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-family-base);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
