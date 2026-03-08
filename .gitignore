@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .vite/
+*.tsbuildinfo
 *.user
 *.suo
 *.cache
@@ -16,4 +17,3 @@ obj/
 *.tmp
 *.nupkg
 artifacts/
-
