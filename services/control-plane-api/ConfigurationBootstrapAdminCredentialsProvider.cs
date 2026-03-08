@@ -16,10 +16,11 @@ internal sealed class ConfigurationBootstrapAdminCredentialsProvider(
     {
         var username = string.IsNullOrWhiteSpace(options.BootstrapAdminUsername) ? "admin" : options.BootstrapAdminUsername.Trim();
 
-        if (!string.IsNullOrWhiteSpace(options.BootstrapAdminPasswordHash))
+        var passwordHash = ResolvePasswordHash(options);
+        if (!string.IsNullOrWhiteSpace(passwordHash))
         {
             logger.LogInformation("Bootstrap admin credentials loaded from configured password hash.");
-            return new BootstrapAdminCredentials(username, options.BootstrapAdminPasswordHash.Trim());
+            return new BootstrapAdminCredentials(username, passwordHash);
         }
 
         var plaintextPassword = ResolvePlaintextPassword(options);
@@ -40,7 +41,25 @@ internal sealed class ConfigurationBootstrapAdminCredentialsProvider(
         }
 
         throw new InvalidOperationException(
-            "Bootstrap admin credentials are not configured. Set SecretManagement:BootstrapAdminPassword, SecretManagement:BootstrapAdminPasswordFile, or SecretManagement:BootstrapAdminPasswordHash.");
+            "Bootstrap admin credentials are not configured. Set SecretManagement:BootstrapAdminPassword, SecretManagement:BootstrapAdminPasswordFile, SecretManagement:BootstrapAdminPasswordHash, or SecretManagement:BootstrapAdminPasswordHashFile.");
+    }
+
+    private static string? ResolvePasswordHash(SecretManagementOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.BootstrapAdminPasswordHashFile))
+        {
+            var path = options.BootstrapAdminPasswordHashFile.Trim();
+            if (!File.Exists(path))
+            {
+                throw new InvalidOperationException($"Configured bootstrap admin password hash file '{path}' was not found.");
+            }
+
+            return File.ReadAllText(path).Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(options.BootstrapAdminPasswordHash)
+            ? null
+            : options.BootstrapAdminPasswordHash.Trim();
     }
 
     private static string? ResolvePlaintextPassword(SecretManagementOptions options)

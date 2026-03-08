@@ -51,6 +51,7 @@ There are two configuration layers in this repository:
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__BootstrapAdminPassword` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE` | `SecretManagement__BootstrapAdminPasswordFile` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH` | `SecretManagement__BootstrapAdminPasswordHash` | `control-plane-api` |
+| `OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH_FILE` | `SecretManagement__BootstrapAdminPasswordHashFile` | `control-plane-api` |
 | `OWLP_ALLOW_GENERATED_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__AllowGeneratedBootstrapAdminPassword` | `control-plane-api` |
 | `OWLP_AUDIT_RETENTION_ENABLED` | `AuditRetention__Enabled` | `control-plane-api` |
 | `OWLP_AUDIT_RETENTION_DAYS` | `AuditRetention__RetentionDays` | `control-plane-api` |

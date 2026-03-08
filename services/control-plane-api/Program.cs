@@ -97,7 +97,7 @@ var webSocketApi = api.MapGroup("/ws");
 
 api.MapGet("/bootstrap", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.GetBootstrapStatus()));
 
-api.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
+api.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore, IAuditWriter auditWriter) =>
 {
     try
     {
@@ -107,11 +107,18 @@ api.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService b
     }
     catch (InvalidOperationException exception)
     {
+        auditWriter.WriteAudit(
+            string.IsNullOrWhiteSpace(request.Username) ? "anonymous" : request.Username.Trim(),
+            "admin-login",
+            "admin",
+            string.IsNullOrWhiteSpace(request.Username) ? "unknown" : request.Username.Trim(),
+            "failure",
+            exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
 });
 
-api.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
+api.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore, IAuditWriter auditWriter) =>
 {
     try
     {
@@ -121,6 +128,13 @@ api.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService boo
     }
     catch (InvalidOperationException exception)
     {
+        auditWriter.WriteAudit(
+            string.IsNullOrWhiteSpace(request.Username) ? "anonymous" : request.Username.Trim(),
+            "test-user-login",
+            "user",
+            string.IsNullOrWhiteSpace(request.Username) ? "unknown" : request.Username.Trim(),
+            "failure",
+            exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
 });
@@ -159,7 +173,7 @@ api.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
     }
 });
 
-api.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSessionStore sessionStore, IAdminRepository adminRepository, IUserRepository userRepository) =>
+api.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSessionStore sessionStore, IAdminRepository adminRepository, IUserRepository userRepository, IAuditWriter auditWriter) =>
 {
     try
     {
@@ -168,6 +182,14 @@ api.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSe
     }
     catch (InvalidOperationException exception)
     {
+        var sessionId = PlatformSessionTokenCodec.TryGetSessionId(request.RefreshToken);
+        auditWriter.WriteAudit(
+            "anonymous",
+            "platform-session-refresh",
+            "platform-session",
+            sessionId ?? "unknown",
+            "failure",
+            exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
 });
@@ -188,7 +210,14 @@ sessionGroup.MapPost("/auth/session/revoke", (HttpContext context, IPlatformSess
 {
     var identity = ControlPlaneSecurity.GetIdentity(context)!;
     var revoked = sessionStore.RevokeSession(identity.Session.Id, identity.Actor, "Session revoked by subject.");
-    return revoked ? Results.NoContent() : Results.NotFound();
+    if (revoked)
+    {
+        return Results.NoContent();
+    }
+
+    context.RequestServices.GetRequiredService<IAuditWriter>()
+        .WriteAudit(identity.Actor, "platform-session-revoked", "platform-session", identity.Session.Id, "failure", "Authenticated subject attempted to revoke a session that was no longer active.");
+    return Results.NotFound();
 });
 
 var userSessionGroup = api.MapGroup(string.Empty);
@@ -770,6 +799,22 @@ api.MapPost("/gateways/trust-material/rotate", async (HttpContext context, IMach
 
     var issued = trustRepository.RotateTrustMaterial(
         MachineTrustSubjectKind.Gateway,
+        machineContext!.TrustMaterial.SubjectId,
+        machineContext.TrustMaterial.SubjectName,
+        machineContext.Actor);
+    return Results.Ok(issued);
+});
+
+api.MapPost("/devices/trust-material/rotate", async (HttpContext context, IMachineTrustRepository trustRepository, MachineTrustReplayProtector replayProtector) =>
+{
+    var body = await MachineTrustSecurity.ReadRequestBodyAsync(context.Request, context.RequestAborted);
+    if (!MachineTrustSecurity.TryAuthenticate(context, body, MachineTrustSubjectKind.Device, trustRepository, replayProtector, out var machineContext, out var deniedResult))
+    {
+        return deniedResult!;
+    }
+
+    var issued = trustRepository.RotateTrustMaterial(
+        MachineTrustSubjectKind.Device,
         machineContext!.TrustMaterial.SubjectId,
         machineContext.TrustMaterial.SubjectName,
         machineContext.Actor);
