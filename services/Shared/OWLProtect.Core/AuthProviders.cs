@@ -10,57 +10,27 @@ public sealed record IdpUserContext(
 
 public interface IAuthProvider
 {
-    string Id { get; }
     string Type { get; }
-    Task<IdpUserContext> ValidateAsync(string token, CancellationToken cancellationToken);
+    Task<IdpUserContext> ValidateAsync(AuthProviderConfig config, string token, CancellationToken cancellationToken);
 }
 
-public sealed class EntraAuthProvider : IAuthProvider
+public sealed class AuthProviderResolver(IEnumerable<IAuthProvider> providers, IAuthProviderConfigRepository repository)
 {
-    public string Id => "auth-1";
-    public string Type => "entra";
+    private readonly IReadOnlyDictionary<string, IAuthProvider> _providersByType = providers.ToDictionary(provider => provider.Type, StringComparer.OrdinalIgnoreCase);
 
-    public Task<IdpUserContext> ValidateAsync(string token, CancellationToken cancellationToken)
+    public async Task<IdpUserContext> ValidateAsync(string providerId, string token, CancellationToken cancellationToken)
     {
-        return Task.FromResult(new IdpUserContext(
-            Id,
-            token,
-            "Entra User",
-            ["group-engineering"],
-            MfaSatisfied: true,
-            SilentSsoEligible: true));
-    }
-}
-
-public sealed class GenericOidcAuthProvider : IAuthProvider
-{
-    public string Id => "auth-2";
-    public string Type => "oidc";
-
-    public Task<IdpUserContext> ValidateAsync(string token, CancellationToken cancellationToken)
-    {
-        return Task.FromResult(new IdpUserContext(
-            Id,
-            token,
-            "OIDC User",
-            ["group-engineering"],
-            MfaSatisfied: true,
-            SilentSsoEligible: false));
-    }
-}
-
-public sealed class AuthProviderResolver(IEnumerable<IAuthProvider> providers)
-{
-    private readonly IReadOnlyDictionary<string, IAuthProvider> _providers = providers.ToDictionary(provider => provider.Id, StringComparer.OrdinalIgnoreCase);
-
-    public IAuthProvider Resolve(string providerId)
-    {
-        if (_providers.TryGetValue(providerId, out var provider))
+        var config = repository.ListAuthProviders().SingleOrDefault(provider => string.Equals(provider.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        if (config is null)
         {
-            return provider;
+            throw new InvalidOperationException($"Unknown auth provider '{providerId}'.");
         }
 
-        throw new InvalidOperationException($"Unknown auth provider '{providerId}'.");
+        if (!_providersByType.TryGetValue(config.Type, out var provider))
+        {
+            throw new InvalidOperationException($"Unsupported auth provider type '{config.Type}' for provider '{providerId}'.");
+        }
+
+        return await provider.ValidateAsync(config, token, cancellationToken);
     }
 }
-

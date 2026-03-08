@@ -61,6 +61,7 @@ else
 
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
+builder.Services.AddSingleton<OpenIdConnectTokenValidator>();
 builder.Services.AddSingleton<AuthProviderResolver>();
 
 var app = builder.Build();
@@ -108,16 +109,22 @@ app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService boo
     }
 });
 
-app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, CancellationToken cancellationToken) =>
+app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, IAuditWriter auditWriter, CancellationToken cancellationToken) =>
 {
     try
     {
-        var provider = resolver.Resolve(request.ProviderId);
-        var result = await provider.ValidateAsync(request.Token, cancellationToken);
+        var result = await resolver.ValidateAsync(request.ProviderId, request.Token, cancellationToken);
+        auditWriter.WriteAudit(result.Subject, "provider-token-validation", "auth-provider", request.ProviderId, "success", $"Validated external identity token for provider '{request.ProviderId}'.");
         return Results.Ok(result);
+    }
+    catch (AuthProviderValidationException exception)
+    {
+        auditWriter.WriteAudit(request.ProviderId, "provider-token-validation", "auth-provider", request.ProviderId, "failure", $"[{exception.DiagnosticCode}] {exception.AuditDetail}");
+        return Results.BadRequest(new { error = exception.SafeMessage, diagnosticCode = exception.DiagnosticCode });
     }
     catch (InvalidOperationException exception)
     {
+        auditWriter.WriteAudit(request.ProviderId, "provider-token-validation", "auth-provider", request.ProviderId, "failure", exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
 });

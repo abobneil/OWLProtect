@@ -66,6 +66,13 @@ The current in-memory implementation is a transitional adapter behind these boun
 - Gateway and scheduler deployments should assume the control-plane schema is already current.
 - Rollback plans must consider both binary rollback and compatible schema state.
 
+## Auth Provider Validation Expectations
+
+- `auth_providers.issuer` must be the provider's OpenID Connect issuer URI and must publish a reachable `/.well-known/openid-configuration` document.
+- `auth_providers.client_id` is the expected token audience for provider login validation.
+- `auth_providers.mfa_claim_paths` identifies claim names such as `amr` or `acr` that the control plane inspects for upstream MFA evidence.
+- Seeded provider rows remain scaffolding only; provider-token validation will fail until operators replace the placeholder issuer and client values with real provider metadata.
+
 ## Near-Term Transition Plan
 
 1. Introduce repository interfaces and keep the in-memory adapter behind them.
