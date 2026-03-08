@@ -29,5 +29,12 @@ This document defines the current secret-loading strategy and the minimum rotati
 ## Signing and Trust Material Rotation
 
 - Session-signing keys, gateway trust material, and device trust material should be sourced from mounted files or an external secret store rather than committed configuration.
-- Rotate trust material by introducing the next secret or certificate, rolling control-plane and runtime components, and then revoking the previous material once all active actors have refreshed.
-- The certificate and trust-rotation workflows themselves are still tracked separately under the PKI hardening backlog.
+- Gateway and device trust material is issued from the control plane through privileged admin APIs:
+  - `POST /api/v1/gateways/{gatewayId}/trust-material`
+  - `POST /api/v1/gateways/{gatewayId}/trust-material/rotate`
+  - `POST /api/v1/devices/{deviceId}/trust-material`
+  - `POST /api/v1/devices/{deviceId}/trust-material/rotate`
+- Issuance responses return a JSON bundle containing the public certificate metadata and the private key. Store that bundle in a mounted file and point the runtime to it with `Gateway__TrustBundleFile`.
+- Gateways now authenticate heartbeat and self-rotation requests with the issued trust bundle. Once a bundle is present, the gateway rotates it automatically through `POST /api/v1/gateways/trust-material/rotate` after `rotateAfterUtc`.
+- Initial provisioning is still an operator action: create or confirm the gateway record, issue trust material, write the JSON response to the configured bundle file, and then start or restart the gateway.
+- Admins may revoke any issued machine credential through `POST /api/v1/trust-material/{trustMaterialId}/revoke`.

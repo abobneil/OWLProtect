@@ -99,6 +99,16 @@ public interface IAuditRetentionRepository
     AuditRetentionCheckpoint ApplyRetention(AuditRetentionOperation operation);
 }
 
+public interface IMachineTrustRepository
+{
+    IReadOnlyList<MachineTrustMaterial> ListTrustMaterials();
+    IReadOnlyList<MachineTrustMaterial> ListTrustMaterials(MachineTrustSubjectKind kind, string subjectId);
+    MachineTrustMaterial? GetTrustMaterial(string trustMaterialId);
+    IssuedMachineTrustMaterial IssueTrustMaterial(MachineTrustSubjectKind kind, string subjectId, string subjectName, string actor);
+    IssuedMachineTrustMaterial RotateTrustMaterial(MachineTrustSubjectKind kind, string subjectId, string subjectName, string actor);
+    bool RevokeTrustMaterial(string trustMaterialId, string actor, string reason);
+}
+
 public interface IPlatformSessionStore
 {
     IssuedPlatformSession CreateSession(PlatformSessionKind kind, string subjectId, string subjectName, string? role);

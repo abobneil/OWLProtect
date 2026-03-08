@@ -20,6 +20,7 @@ public sealed partial class PostgresStore :
     IAuditRepository,
     IAuditWriter,
     IAuditRetentionRepository,
+    IMachineTrustRepository,
     IDisposable
 {
     private readonly ILogger<PostgresStore> _logger;

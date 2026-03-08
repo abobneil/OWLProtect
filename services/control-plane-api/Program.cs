@@ -42,6 +42,7 @@ if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnor
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuditRetentionRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
+    builder.Services.AddSingleton<IMachineTrustRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IPlatformSessionStore, PostgresPlatformSessionStore>();
 }
 else
@@ -62,6 +63,7 @@ else
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuditRetentionRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+    builder.Services.AddSingleton<IMachineTrustRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IPlatformSessionStore, InMemoryPlatformSessionStore>();
 }
 
@@ -73,6 +75,7 @@ builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<OpenIdConnectTokenValidator>();
 builder.Services.AddSingleton<AuthProviderResolver>();
+builder.Services.AddSingleton<MachineTrustReplayProtector>();
 
 var app = builder.Build();
 if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnoreCase))
@@ -436,6 +439,26 @@ compliantAdminGroup.MapGet("/alerts", (IAlertRepository alertRepository) => Resu
 compliantAdminGroup.MapGet("/telemetry/query", (IHealthSampleRepository healthSampleRepository) => Results.Ok(healthSampleRepository.ListHealthSamples()));
 compliantAdminGroup.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
 compliantAdminGroup.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
+compliantAdminGroup.MapGet("/trust-material/query", (IMachineTrustRepository trustRepository, string? kind, string? subjectId) =>
+{
+    var query = trustRepository.ListTrustMaterials().AsEnumerable();
+    if (!string.IsNullOrWhiteSpace(kind))
+    {
+        if (!Enum.TryParse<MachineTrustSubjectKind>(kind, true, out var parsedKind))
+        {
+            return ValidationProblemResponse([$"Trust material kind '{kind}' is not valid."]);
+        }
+
+        query = query.Where(item => item.Kind == parsedKind);
+    }
+
+    if (!string.IsNullOrWhiteSpace(subjectId))
+    {
+        query = query.Where(item => string.Equals(item.SubjectId, subjectId, StringComparison.Ordinal));
+    }
+
+    return Results.Ok(query.ToArray());
+});
 compliantAdminGroup.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
 compliantAdminGroup.MapGet("/audit/checkpoints", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditRetentionCheckpoints()));
 compliantAdminGroup.MapGet("/audit/export", (IAuditRepository auditRepository, DateTimeOffset? before, int? limit) =>
@@ -663,9 +686,127 @@ privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionServic
     var result = await auditRetentionService.RunRetentionAsync(cancellationToken);
     return Results.Ok(new AuditRetentionRunResponse(result.ExportedEventCount, result.Checkpoint));
 });
+privilegedAdminGroup.MapPost("/gateways/{gatewayId}/trust-material", (HttpContext context, string gatewayId, IGatewayRepository gatewayRepository, IMachineTrustRepository trustRepository) =>
+{
+    var gateway = gatewayRepository.ListGateways().SingleOrDefault(item => item.Id == gatewayId);
+    if (gateway is null)
+    {
+        return NotFound("Gateway not found.", "gateway_not_found");
+    }
 
-// Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
-api.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
+    try
+    {
+        return Results.Ok(trustRepository.IssueTrustMaterial(MachineTrustSubjectKind.Gateway, gateway.Id, gateway.Name, ControlPlaneSecurity.GetIdentity(context)!.Actor));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+privilegedAdminGroup.MapPost("/gateways/{gatewayId}/trust-material/rotate", (HttpContext context, string gatewayId, IGatewayRepository gatewayRepository, IMachineTrustRepository trustRepository) =>
+{
+    var gateway = gatewayRepository.ListGateways().SingleOrDefault(item => item.Id == gatewayId);
+    if (gateway is null)
+    {
+        return NotFound("Gateway not found.", "gateway_not_found");
+    }
+
+    try
+    {
+        return Results.Ok(trustRepository.RotateTrustMaterial(MachineTrustSubjectKind.Gateway, gateway.Id, gateway.Name, ControlPlaneSecurity.GetIdentity(context)!.Actor));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+privilegedAdminGroup.MapPost("/devices/{deviceId}/trust-material", (HttpContext context, string deviceId, IDeviceRepository deviceRepository, IMachineTrustRepository trustRepository) =>
+{
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == deviceId);
+    if (device is null)
+    {
+        return NotFound("Device not found.", "device_not_found");
+    }
+
+    try
+    {
+        return Results.Ok(trustRepository.IssueTrustMaterial(MachineTrustSubjectKind.Device, device.Id, device.Name, ControlPlaneSecurity.GetIdentity(context)!.Actor));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+privilegedAdminGroup.MapPost("/devices/{deviceId}/trust-material/rotate", (HttpContext context, string deviceId, IDeviceRepository deviceRepository, IMachineTrustRepository trustRepository) =>
+{
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == deviceId);
+    if (device is null)
+    {
+        return NotFound("Device not found.", "device_not_found");
+    }
+
+    try
+    {
+        return Results.Ok(trustRepository.RotateTrustMaterial(MachineTrustSubjectKind.Device, device.Id, device.Name, ControlPlaneSecurity.GetIdentity(context)!.Actor));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+privilegedAdminGroup.MapPost("/trust-material/{trustMaterialId}/revoke", (HttpContext context, string trustMaterialId, IMachineTrustRepository trustRepository) =>
+{
+    var revoked = trustRepository.RevokeTrustMaterial(trustMaterialId, ControlPlaneSecurity.GetIdentity(context)!.Actor, "Trust material revoked by admin.");
+    return revoked ? Results.Ok(new { trustMaterialId, status = "revoked" }) : NotFound("Trust material not found.", "trust_material_not_found");
+});
+
+api.MapPost("/gateways/trust-material/rotate", async (HttpContext context, IMachineTrustRepository trustRepository, MachineTrustReplayProtector replayProtector) =>
+{
+    var body = await MachineTrustSecurity.ReadRequestBodyAsync(context.Request, context.RequestAborted);
+    if (!MachineTrustSecurity.TryAuthenticate(context, body, MachineTrustSubjectKind.Gateway, trustRepository, replayProtector, out var machineContext, out var deniedResult))
+    {
+        return deniedResult!;
+    }
+
+    var issued = trustRepository.RotateTrustMaterial(
+        MachineTrustSubjectKind.Gateway,
+        machineContext!.TrustMaterial.SubjectId,
+        machineContext.TrustMaterial.SubjectName,
+        machineContext.Actor);
+    return Results.Ok(issued);
+});
+
+api.MapPost("/gateways/heartbeat", async (HttpContext context, IGatewayRepository gatewayRepository, IMachineTrustRepository trustRepository, MachineTrustReplayProtector replayProtector, IAuditWriter auditWriter) =>
+{
+    var body = await MachineTrustSecurity.ReadRequestBodyAsync(context.Request, context.RequestAborted);
+    if (!MachineTrustSecurity.TryAuthenticate(context, body, MachineTrustSubjectKind.Gateway, trustRepository, replayProtector, out var machineContext, out var deniedResult))
+    {
+        return deniedResult!;
+    }
+
+    Gateway? gateway;
+    try
+    {
+        gateway = JsonSerializer.Deserialize<Gateway>(body);
+    }
+    catch (JsonException)
+    {
+        return MachineTrustSecurity.DeserializeFailure();
+    }
+
+    if (gateway is null)
+    {
+        return MachineTrustSecurity.DeserializeFailure();
+    }
+
+    if (!string.Equals(gateway.Id, machineContext!.TrustMaterial.SubjectId, StringComparison.Ordinal))
+    {
+        auditWriter.WriteAudit(machineContext.Actor, "gateway-heartbeat", "gateway", gateway.Id, "failure", $"Authenticated trust material belongs to gateway '{machineContext.TrustMaterial.SubjectId}', but heartbeat attempted to update gateway '{gateway.Id}'.");
+        return Results.Json(new ApiErrorResponse("Gateway identity does not match the authenticated trust material.", "gateway_identity_mismatch"), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    return Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway));
+});
 
 MapEventStream<IAlertRepository, IReadOnlyList<Alert>>(webSocketApi, "/alert-stream", ControlPlaneStreamTopics.Alerts, service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
 MapEventStream<IGatewayRepository, IReadOnlyList<Gateway>>(webSocketApi, "/gateway-health", ControlPlaneStreamTopics.GatewayHealth, service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");

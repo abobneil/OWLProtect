@@ -98,6 +98,27 @@ CREATE TABLE IF NOT EXISTS gateways (
     last_heartbeat_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS machine_trust_materials (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    subject_name TEXT NOT NULL,
+    thumbprint TEXT NOT NULL,
+    certificate_pem TEXT NOT NULL,
+    issued_at_utc TIMESTAMPTZ NOT NULL,
+    not_before_utc TIMESTAMPTZ NOT NULL,
+    expires_at_utc TIMESTAMPTZ NOT NULL,
+    rotate_after_utc TIMESTAMPTZ NOT NULL,
+    revoked_at_utc TIMESTAMPTZ NULL,
+    replaced_by_id TEXT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_machine_trust_materials_subject
+    ON machine_trust_materials (kind, subject_id, issued_at_utc DESC);
+
+CREATE INDEX IF NOT EXISTS ix_machine_trust_materials_thumbprint
+    ON machine_trust_materials (thumbprint);
+
 CREATE TABLE IF NOT EXISTS policies (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
