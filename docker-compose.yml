@@ -23,6 +23,7 @@ services:
       ASPNETCORE_URLS: ${OWLP_CONTROL_PLANE_URLS:-http://+:5180}
       Persistence__Provider: ${OWLP_PERSISTENCE_PROVIDER:-postgres}
       Persistence__ConnectionString: Host=postgres;Port=5432;Database=${OWLP_POSTGRES_DB:-owlprotect};Username=${OWLP_POSTGRES_USER:-owlprotect};Password=${OWLP_POSTGRES_PASSWORD:-owlprotect}
+      Persistence__RedisConnectionString: ${OWLP_REDIS_CONNECTION_STRING:-redis:6379}
       Persistence__SeedOnStartup: ${OWLP_PERSISTENCE_SEED_ON_STARTUP:-true}
       SecretManagement__BootstrapAdminUsername: ${OWLP_BOOTSTRAP_ADMIN_USERNAME:-admin}
       SecretManagement__BootstrapAdminPassword: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD:-}

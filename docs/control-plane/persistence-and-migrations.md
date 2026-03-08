@@ -65,6 +65,7 @@ The current in-memory implementation is a transitional adapter behind these boun
 - Shared or production-like environments should run migrations as an explicit deployment step before new application instances receive traffic.
 - Gateway and scheduler deployments should assume the control-plane schema is already current.
 - Rollback plans must consider both binary rollback and compatible schema state.
+- When `Persistence__RedisConnectionString` is configured, the control plane uses Redis as the hot-path cache for active platform session state while PostgreSQL remains the durable source of truth.
 
 ## Auth Provider Validation Expectations
 

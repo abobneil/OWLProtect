@@ -44,6 +44,7 @@ There are two configuration layers in this repository:
 | --- | --- | --- |
 | `OWLP_CONTROL_PLANE_URLS` | `ASPNETCORE_URLS` | `control-plane-api` |
 | `OWLP_CONTROL_PLANE_BASE_URL` | `ControlPlane__BaseUrl` | `gateway`, `scheduler` |
+| `OWLP_REDIS_CONNECTION_STRING` | `Persistence__RedisConnectionString` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_USERNAME` | `SecretManagement__BootstrapAdminUsername` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__BootstrapAdminPassword` | `control-plane-api` |
 | `OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE` | `SecretManagement__BootstrapAdminPasswordFile` | `control-plane-api` |

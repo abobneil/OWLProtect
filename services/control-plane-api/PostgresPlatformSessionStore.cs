@@ -1,14 +1,31 @@
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using OWLProtect.Core;
+using StackExchange.Redis;
 
 namespace OWLProtect.ControlPlane.Api;
 
-internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> options, IAuditWriter auditWriter) : IPlatformSessionStore, IDisposable
+internal sealed class PostgresPlatformSessionStore : IPlatformSessionStore, IDisposable
 {
     private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(7);
-    private readonly NpgsqlDataSource _dataSource = CreateDataSource(options.Value.ConnectionString);
+    private readonly NpgsqlDataSource _dataSource;
+    private readonly ConnectionMultiplexer? _redisConnection;
+    private readonly IDatabase? _redisDatabase;
+    private readonly IAuditWriter _auditWriter;
+
+    public PostgresPlatformSessionStore(IOptions<PersistenceOptions> options, IAuditWriter auditWriter)
+    {
+        var persistenceOptions = options.Value;
+        _auditWriter = auditWriter;
+        _dataSource = CreateDataSource(persistenceOptions.ConnectionString);
+        if (!string.IsNullOrWhiteSpace(persistenceOptions.RedisConnectionString))
+        {
+            _redisConnection = ConnectionMultiplexer.Connect(persistenceOptions.RedisConnectionString);
+            _redisDatabase = _redisConnection.GetDatabase();
+        }
+    }
 
     public IssuedPlatformSession CreateSession(PlatformSessionKind kind, string subjectId, string subjectName, string? role)
     {
@@ -16,6 +33,8 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
         var sessionId = PlatformSessionTokenCodec.CreateSessionId();
         var accessToken = PlatformSessionTokenCodec.CreateToken(sessionId);
         var refreshToken = PlatformSessionTokenCodec.CreateToken(sessionId);
+        var accessTokenHash = PlatformSessionTokenCodec.HashToken(accessToken);
+        var refreshTokenHash = PlatformSessionTokenCodec.HashToken(refreshToken);
         var session = new PlatformSession(
             sessionId,
             kind,
@@ -62,14 +81,11 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
                 @revoked_at_utc)
             """,
             connection);
-        BindSession(
-            command,
-            session,
-            PlatformSessionTokenCodec.HashToken(accessToken),
-            PlatformSessionTokenCodec.HashToken(refreshToken));
+        BindSession(command, session, accessTokenHash, refreshTokenHash);
         command.ExecuteNonQuery();
 
-        auditWriter.WriteAudit(subjectName, "platform-session-issued", "platform-session", sessionId, "success", $"Issued {kind} session.");
+        CacheStoredSession(new StoredPlatformSession(accessTokenHash, refreshTokenHash, session));
+        _auditWriter.WriteAudit(subjectName, "platform-session-issued", "platform-session", sessionId, "success", $"Issued {kind} session.");
         return new IssuedPlatformSession(session, accessToken, refreshToken);
     }
 
@@ -82,12 +98,13 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
         }
 
         using var connection = _dataSource.OpenConnection();
-        var storedSession = LoadStoredSession(connection, sessionId);
+        var storedSession = LoadStoredSessionFromCache(sessionId) ?? LoadStoredSession(connection, sessionId);
         if (storedSession is null ||
             storedSession.Session.RevokedAtUtc is not null ||
             storedSession.Session.AccessTokenExpiresAtUtc <= DateTimeOffset.UtcNow ||
             !PlatformSessionTokenCodec.VerifyToken(accessToken, storedSession.AccessTokenHash))
         {
+            RemoveCachedSession(sessionId);
             return null;
         }
 
@@ -102,20 +119,24 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
         command.Parameters.AddWithValue("id", updated.Id);
         command.Parameters.AddWithValue("last_authenticated_at_utc", updated.LastAuthenticatedAtUtc);
         command.ExecuteNonQuery();
+
+        CacheStoredSession(storedSession with { Session = updated });
         return updated;
     }
 
     public PlatformSession? GetSession(string sessionId)
     {
         using var connection = _dataSource.OpenConnection();
-        var storedSession = LoadStoredSession(connection, sessionId);
+        var storedSession = LoadStoredSessionFromCache(sessionId) ?? LoadStoredSession(connection, sessionId);
         if (storedSession is null ||
             storedSession.Session.RevokedAtUtc is not null ||
             storedSession.Session.RefreshTokenExpiresAtUtc <= DateTimeOffset.UtcNow)
         {
+            RemoveCachedSession(sessionId);
             return null;
         }
 
+        CacheStoredSession(storedSession);
         return storedSession.Session;
     }
 
@@ -129,18 +150,21 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
 
         using var connection = _dataSource.OpenConnection();
         using var transaction = connection.BeginTransaction();
-        var storedSession = LoadStoredSession(connection, sessionId, transaction);
+        var storedSession = LoadStoredSessionFromCache(sessionId) ?? LoadStoredSession(connection, sessionId, transaction);
         if (storedSession is null ||
             storedSession.Session.RevokedAtUtc is not null ||
             storedSession.Session.RefreshTokenExpiresAtUtc <= DateTimeOffset.UtcNow ||
             !PlatformSessionTokenCodec.VerifyToken(refreshToken, storedSession.RefreshTokenHash))
         {
+            RemoveCachedSession(sessionId);
             throw new InvalidOperationException("Refresh token is invalid or expired.");
         }
 
         var now = DateTimeOffset.UtcNow;
         var nextAccessToken = PlatformSessionTokenCodec.CreateToken(sessionId);
         var nextRefreshToken = PlatformSessionTokenCodec.CreateToken(sessionId);
+        var nextAccessTokenHash = PlatformSessionTokenCodec.HashToken(nextAccessToken);
+        var nextRefreshTokenHash = PlatformSessionTokenCodec.HashToken(nextRefreshToken);
         var refreshedSession = storedSession.Session with
         {
             AccessTokenExpiresAtUtc = now.Add(AccessTokenLifetime),
@@ -164,15 +188,16 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
             connection,
             transaction);
         update.Parameters.AddWithValue("id", refreshedSession.Id);
-        update.Parameters.AddWithValue("access_token_hash", PlatformSessionTokenCodec.HashToken(nextAccessToken));
-        update.Parameters.AddWithValue("refresh_token_hash", PlatformSessionTokenCodec.HashToken(nextRefreshToken));
+        update.Parameters.AddWithValue("access_token_hash", nextAccessTokenHash);
+        update.Parameters.AddWithValue("refresh_token_hash", nextRefreshTokenHash);
         update.Parameters.AddWithValue("access_token_expires_at_utc", refreshedSession.AccessTokenExpiresAtUtc);
         update.Parameters.AddWithValue("refresh_token_expires_at_utc", refreshedSession.RefreshTokenExpiresAtUtc);
         update.Parameters.AddWithValue("last_authenticated_at_utc", refreshedSession.LastAuthenticatedAtUtc);
         update.ExecuteNonQuery();
 
         transaction.Commit();
-        auditWriter.WriteAudit(refreshedSession.SubjectName, "platform-session-refreshed", "platform-session", refreshedSession.Id, "success", "Rotated access and refresh tokens.");
+        CacheStoredSession(new StoredPlatformSession(nextAccessTokenHash, nextRefreshTokenHash, refreshedSession));
+        _auditWriter.WriteAudit(refreshedSession.SubjectName, "platform-session-refreshed", "platform-session", refreshedSession.Id, "success", "Rotated access and refresh tokens.");
         return new IssuedPlatformSession(refreshedSession, nextAccessToken, nextRefreshToken);
     }
 
@@ -202,7 +227,8 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
         command.ExecuteNonQuery();
 
         transaction.Commit();
-        auditWriter.WriteAudit(actor, "platform-session-step-up", "platform-session", sessionId, "success", $"Privileged step-up granted until {expiresAtUtc:O}.");
+        CacheStoredSession(storedSession with { Session = updated });
+        _auditWriter.WriteAudit(actor, "platform-session-step-up", "platform-session", sessionId, "success", $"Privileged step-up granted until {expiresAtUtc:O}.");
         return updated;
     }
 
@@ -222,7 +248,8 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
         var affected = command.ExecuteNonQuery() > 0;
         if (affected)
         {
-            auditWriter.WriteAudit(actor, "platform-session-revoked", "platform-session", sessionId, "success", reason);
+            RemoveCachedSession(sessionId);
+            _auditWriter.WriteAudit(actor, "platform-session-revoked", "platform-session", sessionId, "success", reason);
         }
 
         return affected;
@@ -239,20 +266,35 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
             WHERE kind = @kind
               AND subject_id = @subject_id
               AND revoked_at_utc IS NULL
+            RETURNING id
             """,
             connection);
         command.Parameters.AddWithValue("kind", kind.ToString());
         command.Parameters.AddWithValue("subject_id", subjectId);
-        var affected = command.ExecuteNonQuery();
-        if (affected > 0)
+
+        var revokedSessionIds = new List<string>();
+        using (var reader = command.ExecuteReader())
         {
-            auditWriter.WriteAudit(actor, "platform-session-subject-revoked", "subject", subjectId, "success", $"{affected} {kind} session(s) revoked. {reason}");
+            while (reader.Read())
+            {
+                revokedSessionIds.Add(reader.GetString(0));
+            }
         }
 
-        return affected;
+        if (revokedSessionIds.Count > 0)
+        {
+            RemoveCachedSessions(revokedSessionIds);
+            _auditWriter.WriteAudit(actor, "platform-session-subject-revoked", "subject", subjectId, "success", $"{revokedSessionIds.Count} {kind} session(s) revoked. {reason}");
+        }
+
+        return revokedSessionIds.Count;
     }
 
-    public void Dispose() => _dataSource.Dispose();
+    public void Dispose()
+    {
+        _redisConnection?.Dispose();
+        _dataSource.Dispose();
+    }
 
     private static NpgsqlDataSource CreateDataSource(string? connectionString)
     {
@@ -263,6 +305,68 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
 
         return NpgsqlDataSource.Create(connectionString);
     }
+
+    private void CacheStoredSession(StoredPlatformSession storedSession)
+    {
+        if (_redisDatabase is null)
+        {
+            return;
+        }
+
+        var ttl = storedSession.Session.RefreshTokenExpiresAtUtc - DateTimeOffset.UtcNow;
+        if (ttl <= TimeSpan.Zero)
+        {
+            RemoveCachedSession(storedSession.Session.Id);
+            return;
+        }
+
+        var cacheValue = JsonSerializer.Serialize(new CachedPlatformSession(storedSession.AccessTokenHash, storedSession.RefreshTokenHash, storedSession.Session));
+        _redisDatabase.StringSet(GetCacheKey(storedSession.Session.Id), cacheValue, ttl);
+    }
+
+    private StoredPlatformSession? LoadStoredSessionFromCache(string sessionId)
+    {
+        if (_redisDatabase is null)
+        {
+            return null;
+        }
+
+        var cacheValue = _redisDatabase.StringGet(GetCacheKey(sessionId));
+        if (!cacheValue.HasValue)
+        {
+            return null;
+        }
+
+        var cached = JsonSerializer.Deserialize<CachedPlatformSession>(cacheValue.ToString());
+        if (cached is null)
+        {
+            RemoveCachedSession(sessionId);
+            return null;
+        }
+
+        return new StoredPlatformSession(cached.AccessTokenHash, cached.RefreshTokenHash, cached.Session);
+    }
+
+    private void RemoveCachedSession(string sessionId)
+    {
+        _redisDatabase?.KeyDelete(GetCacheKey(sessionId));
+    }
+
+    private void RemoveCachedSessions(IEnumerable<string> sessionIds)
+    {
+        if (_redisDatabase is null)
+        {
+            return;
+        }
+
+        var keys = sessionIds.Select(id => (RedisKey)GetCacheKey(id)).ToArray();
+        if (keys.Length > 0)
+        {
+            _redisDatabase.KeyDelete(keys);
+        }
+    }
+
+    private static string GetCacheKey(string sessionId) => $"platform-session:{sessionId}";
 
     private static void BindSession(NpgsqlCommand command, PlatformSession session, string accessTokenHash, string refreshTokenHash)
     {
@@ -330,6 +434,11 @@ internal sealed class PostgresPlatformSessionStore(IOptions<PersistenceOptions> 
     }
 
     private sealed record StoredPlatformSession(
+        string AccessTokenHash,
+        string RefreshTokenHash,
+        PlatformSession Session);
+
+    private sealed record CachedPlatformSession(
         string AccessTokenHash,
         string RefreshTokenHash,
         PlatformSession Session);
