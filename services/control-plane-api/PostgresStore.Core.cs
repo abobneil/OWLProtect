@@ -26,15 +26,18 @@ public sealed partial class PostgresStore :
     private readonly NpgsqlDataSource _dataSource;
     private readonly PersistenceOptions _options;
     private readonly IBootstrapAdminCredentialsProvider _bootstrapAdminCredentialsProvider;
+    private readonly IControlPlaneEventPublisher _eventPublisher;
 
     public PostgresStore(
         IOptions<PersistenceOptions> options,
         ILogger<PostgresStore> logger,
-        IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
+        IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider,
+        IControlPlaneEventPublisher eventPublisher)
     {
         _options = options.Value;
         _logger = logger;
         _bootstrapAdminCredentialsProvider = bootstrapAdminCredentialsProvider;
+        _eventPublisher = eventPublisher;
 
         if (string.IsNullOrWhiteSpace(_options.ConnectionString))
         {
@@ -164,8 +167,17 @@ public sealed partial class PostgresStore :
         return MapAdmin(reader);
     }
 
-    private void AddAlert(NpgsqlConnection connection, NpgsqlTransaction? transaction, HealthSeverity severity, string title, string description, string targetType, string targetId)
+    private Alert AddAlert(NpgsqlConnection connection, NpgsqlTransaction? transaction, HealthSeverity severity, string title, string description, string targetType, string targetId)
     {
+        var alert = new Alert(
+            Guid.NewGuid().ToString("n"),
+            severity,
+            title,
+            description,
+            targetType,
+            targetId,
+            DateTimeOffset.UtcNow);
+
         using var command = new NpgsqlCommand(
             """
             INSERT INTO alerts (id, severity, title, description, target_type, target_id, created_at_utc)
@@ -173,14 +185,15 @@ public sealed partial class PostgresStore :
             """,
             connection,
             transaction);
-        command.Parameters.AddWithValue("id", Guid.NewGuid().ToString("n"));
-        command.Parameters.AddWithValue("severity", severity.ToString());
-        command.Parameters.AddWithValue("title", title);
-        command.Parameters.AddWithValue("description", description);
-        command.Parameters.AddWithValue("target_type", targetType);
-        command.Parameters.AddWithValue("target_id", targetId);
-        command.Parameters.AddWithValue("created_at_utc", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("id", alert.Id);
+        command.Parameters.AddWithValue("severity", alert.Severity.ToString());
+        command.Parameters.AddWithValue("title", alert.Title);
+        command.Parameters.AddWithValue("description", alert.Description);
+        command.Parameters.AddWithValue("target_type", alert.TargetType);
+        command.Parameters.AddWithValue("target_id", alert.TargetId);
+        command.Parameters.AddWithValue("created_at_utc", alert.CreatedAtUtc);
         command.ExecuteNonQuery();
+        return alert;
     }
 
     private void AddAudit(NpgsqlConnection connection, string actor, string action, string targetType, string targetId, string outcome, string detail)

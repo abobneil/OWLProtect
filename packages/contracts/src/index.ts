@@ -3,6 +3,25 @@ export type PlatformSessionKind = "Admin" | "User" | "Client";
 export const CONTROL_PLANE_API_VERSION = "v1";
 export const CONTROL_PLANE_API_PREFIX = `/api/${CONTROL_PLANE_API_VERSION}`;
 export const CONTROL_PLANE_SOCKET_PREFIX = `${CONTROL_PLANE_API_PREFIX}/ws`;
+export const CONTROL_PLANE_STREAM_PATHS = {
+  alerts: `${CONTROL_PLANE_SOCKET_PREFIX}/alert-stream`,
+  gatewayHealth: `${CONTROL_PLANE_SOCKET_PREFIX}/gateway-health`,
+  telemetry: `${CONTROL_PLANE_SOCKET_PREFIX}/client-health`,
+  sessions: `${CONTROL_PLANE_SOCKET_PREFIX}/client-session`
+} as const;
+
+export type ControlPlaneStreamTopic = "alerts" | "gateway-health" | "telemetry" | "sessions";
+export type ControlPlaneStreamKind = "snapshot" | "event" | "keepalive";
+
+export interface ControlPlaneStreamFrame<TPayload = unknown> {
+  kind: ControlPlaneStreamKind;
+  topic: ControlPlaneStreamTopic;
+  sequence: number;
+  occurredAtUtc: string;
+  eventType: string | null;
+  entityId: string | null;
+  payload: TPayload | null;
+}
 
 export type HealthSeverity = "green" | "yellow" | "red";
 

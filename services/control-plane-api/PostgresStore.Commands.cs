@@ -167,6 +167,11 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, actor, "enable-user", "user", updated.Id, "success", "User enabled.");
         transaction.Commit();
+        if (updated.TestAccount)
+        {
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created", updated.Id);
+        }
+
         return updated;
     }
 
@@ -297,6 +302,7 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, "admin", "delete-user", "user", userId, "success", "User record deleted.");
         transaction.Commit();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-subject", userId);
     }
 
     public User DisableUser(string userId, string actor, string reason)
@@ -347,6 +353,12 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, actor, "disable-user", "user", updated.Id, "success", reason);
         transaction.Commit();
+        if (updated.TestAccount)
+        {
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created", updated.Id);
+        }
+
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "revoked-subject", updated.Id);
         return updated;
     }
 
@@ -382,6 +394,7 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, "gateway", "heartbeat", "gateway", updated.Id, "success", $"Gateway {updated.Name} reported health {updated.Health}.");
         transaction.Commit();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "upserted", updated.Id);
         return updated;
     }
 
@@ -408,6 +421,7 @@ public sealed partial class PostgresStore
         command.Parameters.AddWithValue("sampled_at_utc", sample.SampledAtUtc);
         command.Parameters.AddWithValue("message", sample.Message);
         command.ExecuteNonQuery();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Telemetry, "recorded", sample.DeviceId);
     }
 
     public Device UpsertDevice(Device device)
@@ -481,6 +495,8 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, "admin", "delete-device", "device", deviceId, "success", "Device record deleted.");
         transaction.Commit();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-device", deviceId);
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Telemetry, "deleted-device", deviceId);
     }
 
     public bool DisableExpiredTestUser()
@@ -568,6 +584,8 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, "admin", "delete-gateway", "gateway", gatewayId, "success", "Gateway record deleted.");
         transaction.Commit();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "deleted", gatewayId);
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-gateway", gatewayId);
     }
 
     public PolicyRule UpsertPolicy(PolicyRule policy)
@@ -671,6 +689,7 @@ public sealed partial class PostgresStore
 
         AddAudit(connection, transaction, "admin", "upsert-session", "session", updated.Id, "success", "Session record created or updated.");
         transaction.Commit();
+        _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "upserted", updated.Id);
         return updated;
     }
 
@@ -696,6 +715,11 @@ public sealed partial class PostgresStore
         }
 
         transaction.Commit();
+        if (affected)
+        {
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "revoked", sessionId);
+        }
+
         return affected;
     }
 }

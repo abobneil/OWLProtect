@@ -18,6 +18,7 @@ This document defines the repository-level conventions for shared contracts, ext
 - Additive response changes are allowed within `v1` when existing fields keep their meaning and compatibility.
 - Breaking route, field, or semantics changes require a new version path rather than silent mutation of `v1`.
 - Control-plane HTTP and WebSocket application surfaces now live under `/api/v1`, including `/api/v1/ws/...` for streaming endpoints.
+- Topic-scoped WebSocket streams should expose a reconnect cursor such as `afterSequence` so consumers can recover by requesting the latest scoped snapshot when they fall behind.
 
 ## Environment Configuration Layout
 
