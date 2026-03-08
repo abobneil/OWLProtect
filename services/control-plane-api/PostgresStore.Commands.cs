@@ -170,7 +170,7 @@ public sealed partial class PostgresStore
         return updated;
     }
 
-    public User UpsertUser(User user)
+    public User UpsertUser(User user, string actor)
     {
         using var connection = _dataSource.OpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -208,7 +208,7 @@ public sealed partial class PostgresStore
         var updated = MapUser(reader);
         reader.Close();
 
-        AddAudit(connection, transaction, "admin", "upsert-user", "user", updated.Id, "success", "User record created or updated.");
+        AddAudit(connection, transaction, actor, "upsert-user", "user", updated.Id, "success", "User record created or updated.");
         transaction.Commit();
         return updated;
     }

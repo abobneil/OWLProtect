@@ -248,8 +248,8 @@ public sealed partial class PostgresStore
     {
         await using var command = new NpgsqlCommand(
             """
-            INSERT INTO auth_providers (id, name, type, issuer, client_id, mfa_claim_paths, silent_sso_enabled)
-            VALUES (@id, @name, @type, @issuer, @client_id, @mfa_claim_paths, @silent_sso_enabled)
+            INSERT INTO auth_providers (id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled)
+            VALUES (@id, @name, @type, @issuer, @client_id, @username_claim_paths, @group_claim_paths, @mfa_claim_paths, @require_mfa, @silent_sso_enabled)
             """,
             connection,
             transaction);
@@ -258,7 +258,10 @@ public sealed partial class PostgresStore
         command.Parameters.AddWithValue("type", provider.Type);
         command.Parameters.AddWithValue("issuer", provider.Issuer);
         command.Parameters.AddWithValue("client_id", provider.ClientId);
+        command.Parameters.AddWithValue("username_claim_paths", provider.UsernameClaimPaths.ToArray());
+        command.Parameters.AddWithValue("group_claim_paths", provider.GroupClaimPaths.ToArray());
         command.Parameters.AddWithValue("mfa_claim_paths", provider.MfaClaimPaths.ToArray());
+        command.Parameters.AddWithValue("require_mfa", provider.RequireMfa);
         command.Parameters.AddWithValue("silent_sso_enabled", provider.SilentSsoEnabled);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

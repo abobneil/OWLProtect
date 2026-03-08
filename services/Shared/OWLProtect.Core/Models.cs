@@ -142,7 +142,10 @@ public sealed record AuthProviderConfig(
     string Type,
     string Issuer,
     string ClientId,
+    IReadOnlyList<string> UsernameClaimPaths,
+    IReadOnlyList<string> GroupClaimPaths,
     IReadOnlyList<string> MfaClaimPaths,
+    bool RequireMfa,
     bool SilentSsoEnabled);
 
 public sealed record AuditEvent(

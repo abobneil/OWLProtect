@@ -24,7 +24,7 @@ public interface IAdminRepository
 public interface IUserRepository
 {
     IReadOnlyList<User> ListUsers();
-    User UpsertUser(User user);
+    User UpsertUser(User user, string actor);
     User EnableUser(string userId, string actor);
     User DisableUser(string userId, string actor, string reason);
     void DeleteUser(string userId);

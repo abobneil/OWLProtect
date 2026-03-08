@@ -3,6 +3,7 @@ namespace OWLProtect.Core;
 public sealed record IdpUserContext(
     string ProviderId,
     string Subject,
+    string Username,
     string DisplayName,
     IReadOnlyList<string> Groups,
     bool MfaSatisfied,

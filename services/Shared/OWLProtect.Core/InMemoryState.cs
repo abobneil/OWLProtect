@@ -239,7 +239,7 @@ public sealed class InMemoryState :
             device.PublicIp,
             device.ConnectionState)).ToArray();
 
-    public User UpsertUser(User user)
+    public User UpsertUser(User user, string actor)
     {
         lock (_gate)
         {
@@ -253,7 +253,7 @@ public sealed class InMemoryState :
                 _users.Add(user);
             }
 
-            AddAudit("admin", "upsert-user", "user", user.Id, "success", "User record created or updated.");
+            AddAudit(actor, "upsert-user", "user", user.Id, "success", "User record created or updated.");
             return user;
         }
     }

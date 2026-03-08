@@ -116,22 +116,36 @@ app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService boo
     }
 });
 
-app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, IAuditWriter auditWriter, CancellationToken cancellationToken) =>
+app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthProviderResolver resolver, IAuthProviderConfigRepository authProviderConfigRepository, IUserRepository userRepository, IPlatformSessionStore sessionStore, IAuditWriter auditWriter, CancellationToken cancellationToken) =>
 {
     try
     {
         var result = await resolver.ValidateAsync(request.ProviderId, request.Token, cancellationToken);
-        auditWriter.WriteAudit(result.Subject, "provider-token-validation", "auth-provider", request.ProviderId, "success", $"Validated external identity token for provider '{request.ProviderId}'.");
-        return Results.Ok(result);
+        var providerConfig = authProviderConfigRepository.ListAuthProviders().Single(item => string.Equals(item.Id, request.ProviderId, StringComparison.OrdinalIgnoreCase));
+        var existingUser = userRepository.ListUsers().SingleOrDefault(user =>
+            string.Equals(user.Id, ExternalIdentityUserFactory.CreateUserId(providerConfig.Id, result.Subject), StringComparison.Ordinal));
+
+        if (existingUser is not null && !existingUser.Enabled)
+        {
+            auditWriter.WriteAudit(result.Username, "provider-login", "user", existingUser.Id, "failure", $"External identity login was rejected because user '{existingUser.Id}' is disabled.");
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var provisionedUser = userRepository.UpsertUser(
+            ExternalIdentityUserFactory.CreateOrUpdateUser(existingUser, providerConfig, result),
+            $"idp:{request.ProviderId}:{result.Username}");
+        var issuedSession = sessionStore.CreateSession(PlatformSessionKind.User, provisionedUser.Id, provisionedUser.Username, role: null);
+        auditWriter.WriteAudit(result.Username, "provider-login", "user", provisionedUser.Id, "success", $"Validated provider '{request.ProviderId}' token and issued a platform session with {provisionedUser.GroupIds.Count} mapped groups.");
+        return Results.Ok(BuildAuthSessionResponse(issuedSession, admin: null, provisionedUser));
     }
     catch (AuthProviderValidationException exception)
     {
-        auditWriter.WriteAudit(request.ProviderId, "provider-token-validation", "auth-provider", request.ProviderId, "failure", $"[{exception.DiagnosticCode}] {exception.AuditDetail}");
+        auditWriter.WriteAudit(request.ProviderId, "provider-login", "auth-provider", request.ProviderId, "failure", $"[{exception.DiagnosticCode}] {exception.AuditDetail}");
         return Results.BadRequest(new { error = exception.SafeMessage, diagnosticCode = exception.DiagnosticCode });
     }
     catch (InvalidOperationException exception)
     {
-        auditWriter.WriteAudit(request.ProviderId, "provider-token-validation", "auth-provider", request.ProviderId, "failure", exception.Message);
+        auditWriter.WriteAudit(request.ProviderId, "provider-login", "auth-provider", request.ProviderId, "failure", exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
 });
@@ -384,7 +398,7 @@ operatorAdminGroup.MapPost("/users", (HttpContext context, User user, IUserRepos
 {
     var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
     var upsert = string.IsNullOrWhiteSpace(user.Id) ? user with { Id = Guid.NewGuid().ToString("n") } : user;
-    return Results.Ok(userRepository.UpsertUser(upsert));
+    return Results.Ok(userRepository.UpsertUser(upsert, actor));
 });
 operatorAdminGroup.MapPost("/users/{userId}/enable", (HttpContext context, string userId, IUserRepository userRepository) =>
 {

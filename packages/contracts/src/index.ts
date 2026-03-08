@@ -128,7 +128,10 @@ export interface AuthProviderConfig {
   type: "entra" | "oidc";
   issuer: string;
   clientId: string;
+  usernameClaimPaths: string[];
+  groupClaimPaths: string[];
   mfaClaimPaths: string[];
+  requireMfa: boolean;
   silentSsoEnabled: boolean;
 }
 
@@ -386,7 +389,10 @@ export const seededSnapshot: DashboardSnapshot = {
       type: "entra",
       issuer: "https://login.microsoftonline.com/example/v2.0",
       clientId: "entra-client-id",
+      usernameClaimPaths: ["preferred_username", "upn", "email", "sub"],
+      groupClaimPaths: ["groups"],
       mfaClaimPaths: ["amr", "acr"],
+      requireMfa: true,
       silentSsoEnabled: true
     },
     {
@@ -395,7 +401,10 @@ export const seededSnapshot: DashboardSnapshot = {
       type: "oidc",
       issuer: "https://identity.example.com",
       clientId: "oidc-client-id",
+      usernameClaimPaths: ["preferred_username", "email", "sub"],
+      groupClaimPaths: ["groups"],
       mfaClaimPaths: ["amr"],
+      requireMfa: true,
       silentSsoEnabled: false
     }
   ],

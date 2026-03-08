@@ -36,11 +36,18 @@ CREATE TABLE IF NOT EXISTS auth_providers (
     type TEXT NOT NULL,
     issuer TEXT NOT NULL,
     client_id TEXT NOT NULL,
+    username_claim_paths TEXT[] NOT NULL DEFAULT '{}',
+    group_claim_paths TEXT[] NOT NULL DEFAULT '{}',
     mfa_claim_paths TEXT[] NOT NULL DEFAULT '{}',
+    require_mfa BOOLEAN NOT NULL DEFAULT TRUE,
     silent_sso_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS username_claim_paths TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS group_claim_paths TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE auth_providers ADD COLUMN IF NOT EXISTS require_mfa BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

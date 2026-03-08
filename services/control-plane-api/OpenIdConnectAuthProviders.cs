@@ -177,12 +177,21 @@ internal sealed class OpenIdConnectTokenValidator
             GetFirstClaimValue(claimLookup, "email") ??
             subject;
 
-        var groups = GetAllClaimValues(claimLookup, "groups");
+        var username = ResolveFirstConfiguredClaimValue(claimLookup, config.UsernameClaimPaths) ?? displayName;
+        var groups = ResolveAllConfiguredClaimValues(claimLookup, config.GroupClaimPaths);
         var mfaSatisfied = ResolveMfaSatisfied(claimLookup, config.MfaClaimPaths);
+        if (config.RequireMfa && !mfaSatisfied)
+        {
+            throw new AuthProviderValidationException(
+                "The configured provider token did not satisfy upstream MFA requirements.",
+                "mfa-required",
+                $"Provider '{config.Id}' token was valid but did not satisfy configured MFA claim requirements.");
+        }
 
         return new IdpUserContext(
             config.Id,
             subject,
+            username,
             displayName,
             groups,
             mfaSatisfied,
@@ -211,6 +220,34 @@ internal sealed class OpenIdConnectTokenValidator
         claimLookup.TryGetValue(claimType, out var values)
             ? values.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.Ordinal).ToArray()
             : [];
+
+    private static string? ResolveFirstConfiguredClaimValue(IReadOnlyDictionary<string, string[]> claimLookup, IReadOnlyList<string> claimPaths)
+    {
+        foreach (var claimPath in claimPaths.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            var value = GetFirstClaimValue(claimLookup, claimPath);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> ResolveAllConfiguredClaimValues(IReadOnlyDictionary<string, string[]> claimLookup, IReadOnlyList<string> claimPaths)
+    {
+        var values = new List<string>();
+        foreach (var claimPath in claimPaths.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            values.AddRange(GetAllClaimValues(claimLookup, claimPath));
+        }
+
+        return values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
 
     private static bool ResolveMfaSatisfied(IReadOnlyDictionary<string, string[]> claimLookup, IReadOnlyList<string> claimPaths)
     {

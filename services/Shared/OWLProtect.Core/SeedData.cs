@@ -100,8 +100,28 @@ public static class SeedData
 
     public static readonly IReadOnlyList<AuthProviderConfig> AuthProviders =
     [
-        new("auth-1", "Microsoft Entra ID", "entra", "https://login.microsoftonline.com/example/v2.0", "entra-client-id", ["amr", "acr"], true),
-        new("auth-2", "Generic OIDC", "oidc", "https://identity.example.com", "oidc-client-id", ["amr"], false)
+        new(
+            "auth-1",
+            "Microsoft Entra ID",
+            "entra",
+            "https://login.microsoftonline.com/example/v2.0",
+            "entra-client-id",
+            ["preferred_username", "upn", "email", "sub"],
+            ["groups"],
+            ["amr", "acr"],
+            RequireMfa: true,
+            SilentSsoEnabled: true),
+        new(
+            "auth-2",
+            "Generic OIDC",
+            "oidc",
+            "https://identity.example.com",
+            "oidc-client-id",
+            ["preferred_username", "email", "sub"],
+            ["groups"],
+            ["amr"],
+            RequireMfa: true,
+            SilentSsoEnabled: false)
     ];
 
     public static readonly IReadOnlyList<AuditEvent> AuditEvents = AuditChain.CreateSeedChain(

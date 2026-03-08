@@ -70,7 +70,11 @@ The current in-memory implementation is a transitional adapter behind these boun
 
 - `auth_providers.issuer` must be the provider's OpenID Connect issuer URI and must publish a reachable `/.well-known/openid-configuration` document.
 - `auth_providers.client_id` is the expected token audience for provider login validation.
+- `auth_providers.username_claim_paths` defines the preferred claim lookup order for the OWLProtect `user.username` field.
+- `auth_providers.group_claim_paths` defines which token claims should be flattened into `user.group_ids`.
 - `auth_providers.mfa_claim_paths` identifies claim names such as `amr` or `acr` that the control plane inspects for upstream MFA evidence.
+- `auth_providers.require_mfa` blocks provider-backed login when the configured MFA evidence is missing.
+- Successful `/auth/provider/login` requests now provision or update a local OWLProtect user record and issue a first-party user platform session.
 - Seeded provider rows remain scaffolding only; provider-token validation will fail until operators replace the placeholder issuer and client values with real provider metadata.
 
 ## Near-Term Transition Plan

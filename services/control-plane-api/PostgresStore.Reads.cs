@@ -309,7 +309,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, type, issuer, client_id, mfa_claim_paths, silent_sso_enabled
+            SELECT id, name, type, issuer, client_id, username_claim_paths, group_claim_paths, mfa_claim_paths, require_mfa, silent_sso_enabled
             FROM auth_providers
             ORDER BY name
             """,
@@ -326,7 +326,10 @@ public sealed partial class PostgresStore
                 reader.GetString(3),
                 reader.GetString(4),
                 ReadStringArray(reader, 5),
-                reader.GetBoolean(6)));
+                ReadStringArray(reader, 6),
+                ReadStringArray(reader, 7),
+                reader.GetBoolean(8),
+                reader.GetBoolean(9)));
         }
 
         return providers;
