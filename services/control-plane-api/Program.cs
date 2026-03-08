@@ -1,5 +1,4 @@
 using System.Net.WebSockets;
-using System.Text;
 using System.Text.Json;
 using OWLProtect.ControlPlane.Api;
 using OWLProtect.Core;
@@ -19,6 +18,7 @@ builder.Services.AddCors(options =>
         policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin();
     });
 });
+
 var persistenceProvider = builder.Configuration["Persistence:Provider"] ?? "in-memory";
 if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnoreCase))
 {
@@ -36,6 +36,8 @@ if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnor
     builder.Services.AddSingleton<IAlertRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuthProviderConfigRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
+    builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<PostgresStore>());
+    builder.Services.AddSingleton<IPlatformSessionStore, PostgresPlatformSessionStore>();
 }
 else
 {
@@ -53,7 +55,10 @@ else
     builder.Services.AddSingleton<IAlertRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuthProviderConfigRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
     builder.Services.AddSingleton<IAuditRepository>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+    builder.Services.AddSingleton<IAuditWriter>(serviceProvider => serviceProvider.GetRequiredService<InMemoryState>());
+    builder.Services.AddSingleton<IPlatformSessionStore, InMemoryPlatformSessionStore>();
 }
+
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<AuthProviderResolver>();
@@ -65,16 +70,23 @@ if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnor
 }
 
 app.UseCors();
+app.Use(async (context, next) =>
+{
+    ControlPlaneSecurity.AttachIdentity(context);
+    await next();
+});
 app.UseWebSockets();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/bootstrap", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.GetBootstrapStatus()));
 
-app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService) =>
+app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
 {
     try
     {
-        return Results.Ok(bootstrapService.LoginAdmin(request.Username, request.Password));
+        var admin = bootstrapService.LoginAdmin(request.Username, request.Password);
+        var issuedSession = sessionStore.CreateSession(PlatformSessionKind.Admin, admin.Id, admin.Username, admin.Role.ToString());
+        return Results.Ok(BuildAuthSessionResponse(issuedSession, admin, user: null));
     }
     catch (InvalidOperationException exception)
     {
@@ -82,11 +94,13 @@ app.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService b
     }
 });
 
-app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService) =>
+app.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService bootstrapService, IPlatformSessionStore sessionStore) =>
 {
     try
     {
-        return Results.Ok(bootstrapService.LoginUser(request.Username));
+        var user = bootstrapService.LoginUser(request.Username);
+        var issuedSession = sessionStore.CreateSession(PlatformSessionKind.User, user.Id, user.Username, role: null);
+        return Results.Ok(BuildAuthSessionResponse(issuedSession, admin: null, user));
     }
     catch (InvalidOperationException exception)
     {
@@ -108,8 +122,73 @@ app.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
     }
 });
 
-app.MapGet("/admins", (IAdminRepository adminRepository) => Results.Ok(adminRepository.ListAdmins()));
-app.MapGet("/admins/query", (IAdminRepository adminRepository, string? username, string? role) =>
+app.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSessionStore sessionStore, IAdminRepository adminRepository, IUserRepository userRepository) =>
+{
+    try
+    {
+        var issuedSession = sessionStore.Refresh(request.RefreshToken);
+        return Results.Ok(BuildAuthSessionResponseFromStore(issuedSession, adminRepository, userRepository));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+
+var sessionGroup = app.MapGroup(string.Empty);
+sessionGroup.AddEndpointFilterFactory(ControlPlaneSecurity.RequireSession);
+sessionGroup.MapGet("/auth/me", (HttpContext context) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context)!;
+    return Results.Ok(new
+    {
+        identity.Session,
+        identity.Admin,
+        identity.User
+    });
+});
+sessionGroup.MapPost("/auth/session/revoke", (HttpContext context, IPlatformSessionStore sessionStore) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context)!;
+    var revoked = sessionStore.RevokeSession(identity.Session.Id, identity.Actor, "Session revoked by subject.");
+    return revoked ? Results.NoContent() : Results.NotFound();
+});
+
+var bootstrapAdminGroup = app.MapGroup(string.Empty);
+bootstrapAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.SuperAdmin, requireCompliantAdmin: false, requireStepUp: false));
+bootstrapAdminGroup.MapPost("/admins/default/password", (HttpContext context, PasswordChangeRequest request, IBootstrapService bootstrapService) =>
+{
+    try
+    {
+        return Results.Ok(bootstrapService.UpdateAdminPassword(request.CurrentPassword, request.NewPassword));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+bootstrapAdminGroup.MapPost("/admins/default/mfa", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.EnrollAdminMfa()));
+
+var compliantAdminGroup = app.MapGroup(string.Empty);
+compliantAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.ReadOnly, requireCompliantAdmin: true, requireStepUp: false));
+compliantAdminGroup.MapPost("/auth/step-up", (HttpContext context, StepUpRequest request, IAdminRepository adminRepository, IPlatformSessionStore sessionStore) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context)!;
+    var admin = adminRepository.ListAdmins().Single(item => item.Id == identity.Session.SubjectId);
+    if (!PasswordProtector.Verify(request.Password, admin.Password))
+    {
+        context.RequestServices.GetRequiredService<IAuditWriter>()
+            .WriteAudit(identity.Actor, "platform-session-step-up", "platform-session", identity.Session.Id, "failure", "Step-up password verification failed.");
+        return Results.BadRequest(new { error = "Step-up verification failed." });
+    }
+
+    var stepUpSession = sessionStore.MarkStepUp(identity.Session.Id, DateTimeOffset.UtcNow.AddMinutes(10), identity.Actor);
+    return Results.Ok(new { session = stepUpSession, stepUpExpiresAtUtc = stepUpSession.StepUpExpiresAtUtc });
+});
+compliantAdminGroup.MapGet("/admins", (IAdminRepository adminRepository) => Results.Ok(adminRepository.ListAdmins()));
+compliantAdminGroup.MapGet("/admins/query", (IAdminRepository adminRepository, string? username, string? role) =>
 {
     var query = adminRepository.ListAdmins().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(username))
@@ -124,21 +203,8 @@ app.MapGet("/admins/query", (IAdminRepository adminRepository, string? username,
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/admins/default/password", (PasswordChangeRequest request, IBootstrapService bootstrapService) =>
-{
-    try
-    {
-        return Results.Ok(bootstrapService.UpdateAdminPassword(request.CurrentPassword, request.NewPassword));
-    }
-    catch (InvalidOperationException exception)
-    {
-        return Results.BadRequest(new { error = exception.Message });
-    }
-});
-app.MapPost("/admins/default/mfa", (IBootstrapService bootstrapService) => Results.Ok(bootstrapService.EnrollAdminMfa()));
-
-app.MapGet("/users", (IUserRepository userRepository) => Results.Ok(userRepository.ListUsers()));
-app.MapGet("/users/query", (IUserRepository userRepository, string? username, bool? enabled, string? provider) =>
+compliantAdminGroup.MapGet("/users", (IUserRepository userRepository) => Results.Ok(userRepository.ListUsers()));
+compliantAdminGroup.MapGet("/users/query", (IUserRepository userRepository, string? username, bool? enabled, string? provider) =>
 {
     var query = userRepository.ListUsers().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(username))
@@ -158,41 +224,8 @@ app.MapGet("/users/query", (IUserRepository userRepository, string? username, bo
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/users", (User user, IUserRepository userRepository) =>
-{
-    var upsert = string.IsNullOrWhiteSpace(user.Id) ? user with { Id = Guid.NewGuid().ToString("n") } : user;
-    return Results.Ok(userRepository.UpsertUser(upsert));
-});
-app.MapPost("/users/{userId}/enable", (string userId, IUserRepository userRepository) =>
-{
-    try
-    {
-        return Results.Ok(userRepository.EnableUser(userId, "admin"));
-    }
-    catch (InvalidOperationException exception)
-    {
-        return Results.BadRequest(new { error = exception.Message });
-    }
-});
-app.MapPost("/users/{userId}/disable", (string userId, IUserRepository userRepository) =>
-{
-    try
-    {
-        return Results.Ok(userRepository.DisableUser(userId, "admin", "User disabled by admin."));
-    }
-    catch (InvalidOperationException exception)
-    {
-        return Results.BadRequest(new { error = exception.Message });
-    }
-});
-app.MapDelete("/users/{userId}", (string userId, IUserRepository userRepository) =>
-{
-    userRepository.DeleteUser(userId);
-    return Results.NoContent();
-});
-
-app.MapGet("/devices", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.ListDevices()));
-app.MapGet("/devices/query", (IDeviceRepository deviceRepository, string? userId, bool? managed, bool? compliant, string? state) =>
+compliantAdminGroup.MapGet("/devices", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.ListDevices()));
+compliantAdminGroup.MapGet("/devices/query", (IDeviceRepository deviceRepository, string? userId, bool? managed, bool? compliant, string? state) =>
 {
     var query = deviceRepository.ListDevices().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(userId))
@@ -217,18 +250,8 @@ app.MapGet("/devices/query", (IDeviceRepository deviceRepository, string? userId
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/devices", (Device device, IDeviceRepository deviceRepository) =>
-{
-    var upsert = string.IsNullOrWhiteSpace(device.Id) ? device with { Id = Guid.NewGuid().ToString("n") } : device;
-    return Results.Ok(deviceRepository.UpsertDevice(upsert));
-});
-app.MapDelete("/devices/{deviceId}", (string deviceId, IDeviceRepository deviceRepository) =>
-{
-    deviceRepository.DeleteDevice(deviceId);
-    return Results.NoContent();
-});
-app.MapGet("/gateways", (IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.ListGateways()));
-app.MapGet("/gateways/query", (IGatewayRepository gatewayRepository, string? region, string? health) =>
+compliantAdminGroup.MapGet("/gateways", (IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.ListGateways()));
+compliantAdminGroup.MapGet("/gateways/query", (IGatewayRepository gatewayRepository, string? region, string? health) =>
 {
     var query = gatewayRepository.ListGateways().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(region))
@@ -243,20 +266,9 @@ app.MapGet("/gateways/query", (IGatewayRepository gatewayRepository, string? reg
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/gateways", (Gateway gateway, IGatewayRepository gatewayRepository) =>
-{
-    var upsert = string.IsNullOrWhiteSpace(gateway.Id) ? gateway with { Id = Guid.NewGuid().ToString("n") } : gateway;
-    return Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(upsert));
-});
-app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
-app.MapDelete("/gateways/{gatewayId}", (string gatewayId, IGatewayRepository gatewayRepository) =>
-{
-    gatewayRepository.DeleteGateway(gatewayId);
-    return Results.NoContent();
-});
-app.MapGet("/gateway-pools", (IGatewayPoolRepository gatewayPoolRepository) => Results.Ok(gatewayPoolRepository.ListGatewayPools()));
-app.MapGet("/policies", (IPolicyRepository policyRepository) => Results.Ok(policyRepository.ListPolicies()));
-app.MapGet("/policies/query", (IPolicyRepository policyRepository, string? name, string? cidr, string? dnsZone) =>
+compliantAdminGroup.MapGet("/gateway-pools", (IGatewayPoolRepository gatewayPoolRepository) => Results.Ok(gatewayPoolRepository.ListGatewayPools()));
+compliantAdminGroup.MapGet("/policies", (IPolicyRepository policyRepository) => Results.Ok(policyRepository.ListPolicies()));
+compliantAdminGroup.MapGet("/policies/query", (IPolicyRepository policyRepository, string? name, string? cidr, string? dnsZone) =>
 {
     var query = policyRepository.ListPolicies().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(name))
@@ -276,18 +288,8 @@ app.MapGet("/policies/query", (IPolicyRepository policyRepository, string? name,
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/policies", (PolicyRule policy, IPolicyRepository policyRepository) =>
-{
-    var upsert = string.IsNullOrWhiteSpace(policy.Id) ? policy with { Id = Guid.NewGuid().ToString("n") } : policy;
-    return Results.Ok(policyRepository.UpsertPolicy(upsert));
-});
-app.MapDelete("/policies/{policyId}", (string policyId, IPolicyRepository policyRepository) =>
-{
-    policyRepository.DeletePolicy(policyId);
-    return Results.NoContent();
-});
-app.MapGet("/sessions", (ISessionRepository sessionRepository) => Results.Ok(sessionRepository.ListSessions()));
-app.MapGet("/sessions/query", (ISessionRepository sessionRepository, string? userId, string? deviceId, string? gatewayId) =>
+compliantAdminGroup.MapGet("/sessions", (ISessionRepository sessionRepository) => Results.Ok(sessionRepository.ListSessions()));
+compliantAdminGroup.MapGet("/sessions/query", (ISessionRepository sessionRepository, string? userId, string? deviceId, string? gatewayId) =>
 {
     var query = sessionRepository.ListSessions().AsEnumerable();
     if (!string.IsNullOrWhiteSpace(userId))
@@ -307,52 +309,168 @@ app.MapGet("/sessions/query", (ISessionRepository sessionRepository, string? use
 
     return Results.Ok(query.ToArray());
 });
-app.MapPost("/sessions", (TunnelSession session, ISessionRepository sessionRepository) =>
+compliantAdminGroup.MapGet("/alerts", (IAlertRepository alertRepository) => Results.Ok(alertRepository.ListAlerts()));
+compliantAdminGroup.MapGet("/telemetry/query", (IHealthSampleRepository healthSampleRepository) => Results.Ok(healthSampleRepository.ListHealthSamples()));
+compliantAdminGroup.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
+compliantAdminGroup.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
+compliantAdminGroup.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
+
+var operatorAdminGroup = app.MapGroup(string.Empty);
+operatorAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: false));
+operatorAdminGroup.MapPost("/users", (HttpContext context, User user, IUserRepository userRepository) =>
+{
+    var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
+    var upsert = string.IsNullOrWhiteSpace(user.Id) ? user with { Id = Guid.NewGuid().ToString("n") } : user;
+    return Results.Ok(userRepository.UpsertUser(upsert));
+});
+operatorAdminGroup.MapPost("/users/{userId}/enable", (HttpContext context, string userId, IUserRepository userRepository) =>
+{
+    try
+    {
+        return Results.Ok(userRepository.EnableUser(userId, ControlPlaneSecurity.GetIdentity(context)!.Actor));
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+operatorAdminGroup.MapPost("/devices", (Device device, IDeviceRepository deviceRepository) =>
+{
+    var upsert = string.IsNullOrWhiteSpace(device.Id) ? device with { Id = Guid.NewGuid().ToString("n") } : device;
+    return Results.Ok(deviceRepository.UpsertDevice(upsert));
+});
+operatorAdminGroup.MapPost("/gateways", (Gateway gateway, IGatewayRepository gatewayRepository) =>
+{
+    var upsert = string.IsNullOrWhiteSpace(gateway.Id) ? gateway with { Id = Guid.NewGuid().ToString("n") } : gateway;
+    return Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(upsert));
+});
+operatorAdminGroup.MapPost("/policies", (PolicyRule policy, IPolicyRepository policyRepository) =>
+{
+    var upsert = string.IsNullOrWhiteSpace(policy.Id) ? policy with { Id = Guid.NewGuid().ToString("n") } : policy;
+    return Results.Ok(policyRepository.UpsertPolicy(upsert));
+});
+operatorAdminGroup.MapPost("/sessions", (TunnelSession session, ISessionRepository sessionRepository) =>
 {
     var upsert = string.IsNullOrWhiteSpace(session.Id)
         ? session with { Id = Guid.NewGuid().ToString("n"), ConnectedAtUtc = session.ConnectedAtUtc == default ? DateTimeOffset.UtcNow : session.ConnectedAtUtc }
         : session;
     return Results.Ok(sessionRepository.UpsertSession(upsert));
 });
-app.MapPost("/sessions/{sessionId}/revoke", (string sessionId, ISessionRepository sessionRepository) =>
+
+var privilegedAdminGroup = app.MapGroup(string.Empty);
+privilegedAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
+    ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.Operator, requireCompliantAdmin: true, requireStepUp: true));
+privilegedAdminGroup.MapPost("/users/{userId}/disable", (HttpContext context, string userId, IUserRepository userRepository, IPlatformSessionStore platformSessionStore) =>
 {
-    var revoked = sessionRepository.RevokeSession(sessionId, "admin", "Session revoked by admin.");
+    try
+    {
+        var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
+        var updatedUser = userRepository.DisableUser(userId, actor, "User disabled by admin.");
+        platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.User, userId, actor, "User was disabled.");
+        return Results.Ok(updatedUser);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new { error = exception.Message });
+    }
+});
+privilegedAdminGroup.MapDelete("/users/{userId}", (HttpContext context, string userId, IUserRepository userRepository, IPlatformSessionStore platformSessionStore) =>
+{
+    var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
+    platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.User, userId, actor, "User was deleted.");
+    userRepository.DeleteUser(userId);
+    return Results.NoContent();
+});
+privilegedAdminGroup.MapDelete("/devices/{deviceId}", (string deviceId, IDeviceRepository deviceRepository) =>
+{
+    deviceRepository.DeleteDevice(deviceId);
+    return Results.NoContent();
+});
+privilegedAdminGroup.MapDelete("/gateways/{gatewayId}", (string gatewayId, IGatewayRepository gatewayRepository) =>
+{
+    gatewayRepository.DeleteGateway(gatewayId);
+    return Results.NoContent();
+});
+privilegedAdminGroup.MapDelete("/policies/{policyId}", (string policyId, IPolicyRepository policyRepository) =>
+{
+    policyRepository.DeletePolicy(policyId);
+    return Results.NoContent();
+});
+privilegedAdminGroup.MapPost("/sessions/{sessionId}/revoke", (HttpContext context, string sessionId, ISessionRepository sessionRepository) =>
+{
+    var revoked = sessionRepository.RevokeSession(sessionId, ControlPlaneSecurity.GetIdentity(context)!.Actor, "Session revoked by admin.");
     return revoked ? Results.Ok(new { sessionId, status = "revoked" }) : Results.NotFound();
 });
-app.MapGet("/alerts", (IAlertRepository alertRepository) => Results.Ok(alertRepository.ListAlerts()));
-app.MapGet("/telemetry/query", (IHealthSampleRepository healthSampleRepository) => Results.Ok(healthSampleRepository.ListHealthSamples()));
-app.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
-app.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
-app.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
-
-app.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequest request, IBootstrapService bootstrapService) =>
+privilegedAdminGroup.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequest request) => Results.Ok(new
 {
-    var stepUpSatisfied = string.Equals(context.Request.Headers["X-Step-Up"], "approved", StringComparison.OrdinalIgnoreCase);
-    if (!bootstrapService.ValidatePrivilegedOperation(stepUpSatisfied))
-    {
-        return Results.StatusCode(StatusCodes.Status412PreconditionFailed);
-    }
+    actor = ControlPlaneSecurity.GetIdentity(context)!.Actor,
+    operation = request.OperationName,
+    status = "approved"
+}));
 
-    return Results.Ok(new
-    {
-        operation = request.OperationName,
-        status = "approved"
-    });
-});
+// Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
+app.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
 
-MapSocket<IDashboardQueryService, DashboardSnapshot>(app, "/ws/admin-dashboard", service => service.Snapshot());
-MapSocket<IAlertRepository, IReadOnlyList<Alert>>(app, "/ws/alert-stream", service => service.ListAlerts());
-MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(app, "/ws/gateway-health", service => service.ListGateways());
-MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(app, "/ws/client-health", service => service.ListHealthSamples());
-MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(app, "/ws/client-session", service => service.ListSessions());
+MapSocket<IDashboardQueryService, DashboardSnapshot>(app, "/ws/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly);
+MapSocket<IAlertRepository, IReadOnlyList<Alert>>(app, "/ws/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly);
+MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(app, "/ws/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly);
+MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(app, "/ws/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly);
+MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(app, "/ws/client-session", service => service.ListSessions(), AdminRole.ReadOnly);
 
 app.Run();
 
-static void MapSocket<TService, TPayload>(WebApplication app, string path, Func<TService, TPayload> payloadFactory)
+static AuthSessionResponse BuildAuthSessionResponse(IssuedPlatformSession issuedSession, AdminAccount? admin, User? user) =>
+    new(
+        issuedSession.Session,
+        new SessionTokenPair(
+            issuedSession.AccessToken,
+            issuedSession.Session.AccessTokenExpiresAtUtc,
+            issuedSession.RefreshToken,
+            issuedSession.Session.RefreshTokenExpiresAtUtc),
+        admin,
+        user);
+
+static AuthSessionResponse BuildAuthSessionResponseFromStore(IssuedPlatformSession issuedSession, IAdminRepository adminRepository, IUserRepository userRepository)
+{
+    var admin = issuedSession.Session.Kind == PlatformSessionKind.Admin
+        ? adminRepository.ListAdmins().SingleOrDefault(item => item.Id == issuedSession.Session.SubjectId)
+        : null;
+    var user = issuedSession.Session.Kind == PlatformSessionKind.User
+        ? userRepository.ListUsers().SingleOrDefault(item => item.Id == issuedSession.Session.SubjectId)
+        : null;
+
+    return BuildAuthSessionResponse(issuedSession, admin, user);
+}
+
+static void MapSocket<TService, TPayload>(
+    WebApplication app,
+    string path,
+    Func<TService, TPayload> payloadFactory,
+    AdminRole minimumRole)
     where TService : notnull
 {
     app.Map(path, async (HttpContext context, TService service) =>
     {
+        var identity = ControlPlaneSecurity.GetIdentity(context);
+        if (identity?.Admin is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        if (identity.Admin.MustChangePassword || !identity.Admin.MfaEnrolled)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
+        if (minimumRole == AdminRole.Operator && identity.Admin.Role == AdminRole.ReadOnly)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
         if (!context.WebSockets.IsWebSocketRequest)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;

@@ -18,6 +18,7 @@ public sealed partial class PostgresStore :
     IAlertRepository,
     IAuthProviderConfigRepository,
     IAuditRepository,
+    IAuditWriter,
     IDisposable
 {
     private readonly ILogger<PostgresStore> _logger;
@@ -54,6 +55,12 @@ public sealed partial class PostgresStore :
     }
 
     public void Dispose() => _dataSource.Dispose();
+
+    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
+    {
+        using var connection = _dataSource.OpenConnection();
+        AddAudit(connection, actor, action, targetType, targetId, outcome, detail);
+    }
 
     private AdminAccount GetBootstrapAdmin(NpgsqlConnection connection, NpgsqlTransaction transaction)
     {

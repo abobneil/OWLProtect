@@ -1,4 +1,5 @@
 export type AdminRole = "SuperAdmin" | "Operator" | "ReadOnly";
+export type PlatformSessionKind = "Admin" | "User" | "Client";
 
 export type HealthSeverity = "green" | "yellow" | "red";
 
@@ -140,6 +141,34 @@ export interface AuditEvent {
   createdAtUtc: string;
   outcome: "success" | "failure";
   detail: string;
+}
+
+export interface PlatformSession {
+  id: string;
+  kind: PlatformSessionKind;
+  subjectId: string;
+  subjectName: string;
+  role: AdminRole | null;
+  createdAtUtc: string;
+  accessTokenExpiresAtUtc: string;
+  refreshTokenExpiresAtUtc: string;
+  lastAuthenticatedAtUtc: string;
+  stepUpExpiresAtUtc: string | null;
+  revokedAtUtc: string | null;
+}
+
+export interface SessionTokenPair {
+  accessToken: string;
+  accessTokenExpiresAtUtc: string;
+  refreshToken: string;
+  refreshTokenExpiresAtUtc: string;
+}
+
+export interface AuthSessionResponse {
+  session: PlatformSession;
+  tokens: SessionTokenPair;
+  admin: AdminAccount | null;
+  user: User | null;
 }
 
 export interface DashboardSnapshot {
@@ -372,4 +401,3 @@ export const seededSnapshot: DashboardSnapshot = {
     }
   ]
 };
-

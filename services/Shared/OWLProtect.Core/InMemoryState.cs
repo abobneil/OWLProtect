@@ -15,7 +15,8 @@ public sealed class InMemoryState :
     IHealthSampleRepository,
     IAlertRepository,
     IAuthProviderConfigRepository,
-    IAuditRepository
+    IAuditRepository,
+    IAuditWriter
 {
     private readonly Lock _gate = new();
     private AdminAccount _defaultAdmin = SeedData.DefaultAdmin;
@@ -449,6 +450,14 @@ public sealed class InMemoryState :
         }
     }
 
+    public void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)
+    {
+        lock (_gate)
+        {
+            AddAudit(actor, action, targetType, targetId, outcome, detail);
+        }
+    }
+
     public bool DisableExpiredTestUser()
     {
         lock (_gate)
@@ -515,4 +524,6 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(List<TunnelSession>))]
 [JsonSerializable(typeof(List<PolicyRule>))]
 [JsonSerializable(typeof(List<AuthProviderConfig>))]
+[JsonSerializable(typeof(PlatformSession))]
+[JsonSerializable(typeof(IssuedPlatformSession))]
 public partial class OwlProtectJsonContext : JsonSerializerContext;

@@ -28,6 +28,13 @@ public enum ConnectionState
     PolicyBlocked
 }
 
+public enum PlatformSessionKind
+{
+    Admin,
+    User,
+    Client
+}
+
 public sealed record User(
     string Id,
     string Username,
@@ -174,3 +181,21 @@ public sealed record BootstrapStatus(
     bool RequiresMfaEnrollment,
     bool TestUserEnabled,
     DateTimeOffset? TestUserAutoDisableAtUtc);
+
+public sealed record PlatformSession(
+    string Id,
+    PlatformSessionKind Kind,
+    string SubjectId,
+    string SubjectName,
+    string? Role,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset AccessTokenExpiresAtUtc,
+    DateTimeOffset RefreshTokenExpiresAtUtc,
+    DateTimeOffset LastAuthenticatedAtUtc,
+    DateTimeOffset? StepUpExpiresAtUtc,
+    DateTimeOffset? RevokedAtUtc);
+
+public sealed record IssuedPlatformSession(
+    PlatformSession Session,
+    string AccessToken,
+    string RefreshToken);

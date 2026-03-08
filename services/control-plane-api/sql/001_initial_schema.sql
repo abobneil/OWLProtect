@@ -14,6 +14,22 @@ CREATE TABLE IF NOT EXISTS admins (
     updated_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS platform_sessions (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    subject_name TEXT NOT NULL,
+    role TEXT NULL,
+    access_token_hash TEXT NOT NULL,
+    refresh_token_hash TEXT NOT NULL,
+    created_at_utc TIMESTAMPTZ NOT NULL,
+    access_token_expires_at_utc TIMESTAMPTZ NOT NULL,
+    refresh_token_expires_at_utc TIMESTAMPTZ NOT NULL,
+    last_authenticated_at_utc TIMESTAMPTZ NOT NULL,
+    step_up_expires_at_utc TIMESTAMPTZ NULL,
+    revoked_at_utc TIMESTAMPTZ NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

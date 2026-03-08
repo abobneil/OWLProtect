@@ -84,3 +84,19 @@ public interface IAuditRepository
 {
     IReadOnlyList<AuditEvent> ListAuditEvents();
 }
+
+public interface IAuditWriter
+{
+    void WriteAudit(string actor, string action, string targetType, string targetId, string outcome, string detail);
+}
+
+public interface IPlatformSessionStore
+{
+    IssuedPlatformSession CreateSession(PlatformSessionKind kind, string subjectId, string subjectName, string? role);
+    PlatformSession? Authenticate(string accessToken);
+    PlatformSession? GetSession(string sessionId);
+    IssuedPlatformSession Refresh(string refreshToken);
+    PlatformSession MarkStepUp(string sessionId, DateTimeOffset expiresAtUtc, string actor);
+    bool RevokeSession(string sessionId, string actor, string reason);
+    int RevokeSubjectSessions(PlatformSessionKind kind, string subjectId, string actor, string reason);
+}
