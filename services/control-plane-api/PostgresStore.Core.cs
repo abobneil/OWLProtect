@@ -24,11 +24,16 @@ public sealed partial class PostgresStore :
     private readonly ILogger<PostgresStore> _logger;
     private readonly NpgsqlDataSource _dataSource;
     private readonly PersistenceOptions _options;
+    private readonly IBootstrapAdminCredentialsProvider _bootstrapAdminCredentialsProvider;
 
-    public PostgresStore(IOptions<PersistenceOptions> options, ILogger<PostgresStore> logger)
+    public PostgresStore(
+        IOptions<PersistenceOptions> options,
+        ILogger<PostgresStore> logger,
+        IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
     {
         _options = options.Value;
         _logger = logger;
+        _bootstrapAdminCredentialsProvider = bootstrapAdminCredentialsProvider;
 
         if (string.IsNullOrWhiteSpace(_options.ConnectionString))
         {
@@ -62,17 +67,20 @@ public sealed partial class PostgresStore :
         AddAudit(connection, actor, action, targetType, targetId, outcome, detail);
     }
 
+    private string BootstrapAdminUsername => _bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials().Username;
+
     private AdminAccount GetBootstrapAdmin(NpgsqlConnection connection, NpgsqlTransaction transaction)
     {
         using var command = new NpgsqlCommand(
             """
             SELECT id, username, password_hash, role, must_change_password, mfa_enrolled
             FROM admins
-            WHERE username = 'admin'
+            WHERE username = @username
             LIMIT 1
             """,
             connection,
             transaction);
+        command.Parameters.AddWithValue("username", BootstrapAdminUsername);
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {

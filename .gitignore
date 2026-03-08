@@ -20,3 +20,4 @@ artifacts/
 .env
 .env.local
 .env.*.local
+.secrets/

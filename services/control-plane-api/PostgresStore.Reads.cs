@@ -32,10 +32,10 @@ public sealed partial class PostgresStore
                 WHERE username = 'user'
                 LIMIT 1
             ) u
-            ORDER BY a.username
-            LIMIT 1
+            WHERE a.username = @username
             """,
             connection);
+        command.Parameters.AddWithValue("username", BootstrapAdminUsername);
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {

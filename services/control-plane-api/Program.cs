@@ -5,6 +5,7 @@ using OWLProtect.Core;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection("Persistence"));
+builder.Services.Configure<SecretManagementOptions>(builder.Configuration.GetSection("SecretManagement"));
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -59,6 +60,7 @@ else
     builder.Services.AddSingleton<IPlatformSessionStore, InMemoryPlatformSessionStore>();
 }
 
+builder.Services.AddSingleton<IBootstrapAdminCredentialsProvider, ConfigurationBootstrapAdminCredentialsProvider>();
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<OpenIdConnectTokenValidator>();

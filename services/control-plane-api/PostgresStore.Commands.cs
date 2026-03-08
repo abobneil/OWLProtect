@@ -112,11 +112,12 @@ public sealed partial class PostgresStore
             UPDATE admins
             SET mfa_enrolled = TRUE,
                 updated_at_utc = NOW()
-            WHERE username = 'admin'
+            WHERE username = @username
             RETURNING id, username, password_hash, role, must_change_password, mfa_enrolled
             """,
             connection,
             transaction);
+        update.Parameters.AddWithValue("username", BootstrapAdminUsername);
 
         using var reader = update.ExecuteReader();
         if (!reader.Read())
@@ -448,10 +449,11 @@ public sealed partial class PostgresStore
             """
             SELECT must_change_password, mfa_enrolled
             FROM admins
-            WHERE username = 'admin'
+            WHERE username = @username
             LIMIT 1
             """,
             connection);
+        command.Parameters.AddWithValue("username", BootstrapAdminUsername);
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {

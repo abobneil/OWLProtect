@@ -17,7 +17,7 @@ public sealed partial class PostgresStore
 
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        await InsertAdminAsync(connection, transaction, SeedData.DefaultAdmin, cancellationToken);
+        await InsertAdminAsync(connection, transaction, SeedData.CreateDefaultAdmin(_bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials()), cancellationToken);
         foreach (var user in SeedData.Users)
         {
             await InsertUserAsync(connection, transaction, user, cancellationToken);

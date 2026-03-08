@@ -24,8 +24,15 @@ services:
       Persistence__Provider: ${OWLP_PERSISTENCE_PROVIDER:-postgres}
       Persistence__ConnectionString: Host=postgres;Port=5432;Database=${OWLP_POSTGRES_DB:-owlprotect};Username=${OWLP_POSTGRES_USER:-owlprotect};Password=${OWLP_POSTGRES_PASSWORD:-owlprotect}
       Persistence__SeedOnStartup: ${OWLP_PERSISTENCE_SEED_ON_STARTUP:-true}
+      SecretManagement__BootstrapAdminUsername: ${OWLP_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      SecretManagement__BootstrapAdminPassword: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD:-}
+      SecretManagement__BootstrapAdminPasswordFile: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE:-}
+      SecretManagement__BootstrapAdminPasswordHash: ${OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH:-}
+      SecretManagement__AllowGeneratedBootstrapAdminPassword: ${OWLP_ALLOW_GENERATED_BOOTSTRAP_ADMIN_PASSWORD:-false}
     ports:
       - "${OWLP_CONTROL_PLANE_PORT:-5180}:5180"
+    volumes:
+      - "${OWLP_SECRET_MOUNT_PATH:-./.secrets}:/run/owlprotect-secrets:ro"
     depends_on:
       - postgres
       - redis

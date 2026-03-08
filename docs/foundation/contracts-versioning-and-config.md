@@ -44,9 +44,16 @@ There are two configuration layers in this repository:
 | --- | --- | --- |
 | `OWLP_CONTROL_PLANE_URLS` | `ASPNETCORE_URLS` | `control-plane-api` |
 | `OWLP_CONTROL_PLANE_BASE_URL` | `ControlPlane__BaseUrl` | `gateway`, `scheduler` |
+| `OWLP_BOOTSTRAP_ADMIN_USERNAME` | `SecretManagement__BootstrapAdminUsername` | `control-plane-api` |
+| `OWLP_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__BootstrapAdminPassword` | `control-plane-api` |
+| `OWLP_BOOTSTRAP_ADMIN_PASSWORD_FILE` | `SecretManagement__BootstrapAdminPasswordFile` | `control-plane-api` |
+| `OWLP_BOOTSTRAP_ADMIN_PASSWORD_HASH` | `SecretManagement__BootstrapAdminPasswordHash` | `control-plane-api` |
+| `OWLP_ALLOW_GENERATED_BOOTSTRAP_ADMIN_PASSWORD` | `SecretManagement__AllowGeneratedBootstrapAdminPassword` | `control-plane-api` |
 | `OWLP_GATEWAY_ID` | `Gateway__Id` | `gateway` |
 | `OWLP_GATEWAY_NAME` | `Gateway__Name` | `gateway` |
 | `OWLP_GATEWAY_REGION` | `Gateway__Region` | `gateway` |
+
+`OWLP_SECRET_MOUNT_PATH` is a deployment-only Docker Compose input used to mount file-backed secrets into `/run/owlprotect-secrets`.
 
 The PostgreSQL, Redis, and admin portal port variables are deployment inputs only and are consumed by Docker Compose directly.
 

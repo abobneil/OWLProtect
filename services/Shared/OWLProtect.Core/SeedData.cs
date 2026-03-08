@@ -2,11 +2,11 @@ namespace OWLProtect.Core;
 
 public static class SeedData
 {
-    public static readonly AdminAccount DefaultAdmin =
+    public static AdminAccount CreateDefaultAdmin(BootstrapAdminCredentials credentials) =>
         new(
             "admin-1",
-            "admin",
-            PasswordProtector.Hash("admin"),
+            credentials.Username,
+            credentials.PasswordHash,
             AdminRole.SuperAdmin,
             MustChangePassword: true,
             MfaEnrolled: false);

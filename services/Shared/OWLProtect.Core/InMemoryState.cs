@@ -19,7 +19,7 @@ public sealed class InMemoryState :
     IAuditWriter
 {
     private readonly Lock _gate = new();
-    private AdminAccount _defaultAdmin = SeedData.DefaultAdmin;
+    private AdminAccount _defaultAdmin;
     private DateTimeOffset? _testUserEnabledAtUtc;
 
     private readonly List<User> _users = [.. SeedData.Users];
@@ -32,6 +32,11 @@ public sealed class InMemoryState :
     private readonly List<Alert> _alerts = [.. SeedData.Alerts];
     private readonly List<AuthProviderConfig> _authProviders = [.. SeedData.AuthProviders];
     private readonly List<AuditEvent> _auditEvents = [.. SeedData.AuditEvents];
+
+    public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
+    {
+        _defaultAdmin = SeedData.CreateDefaultAdmin(bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials());
+    }
 
     public DashboardSnapshot Snapshot()
     {
