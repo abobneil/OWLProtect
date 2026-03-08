@@ -20,6 +20,7 @@ public sealed class InMemoryState :
     IAuditRetentionRepository
 {
     private readonly Lock _gate = new();
+    private readonly IControlPlaneEventPublisher _eventPublisher;
     private AdminAccount _defaultAdmin;
     private readonly List<AdminAccount> _admins = [];
     private DateTimeOffset? _testUserEnabledAtUtc;
@@ -36,8 +37,9 @@ public sealed class InMemoryState :
     private readonly List<AuditEvent> _auditEvents = [.. SeedData.AuditEvents];
     private readonly List<AuditRetentionCheckpoint> _auditRetentionCheckpoints = [];
 
-    public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider)
+    public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider, IControlPlaneEventPublisher eventPublisher)
     {
+        _eventPublisher = eventPublisher;
         _defaultAdmin = SeedData.CreateDefaultAdmin(bootstrapAdminCredentialsProvider.GetBootstrapAdminCredentials());
         _admins.Add(_defaultAdmin);
     }
@@ -203,6 +205,7 @@ public sealed class InMemoryState :
             {
                 _testUserEnabledAtUtc = DateTimeOffset.UtcNow;
                 AddAlert(HealthSeverity.Yellow, "Test account enabled", "The seeded test account was enabled and will be auto-disabled within one hour.", "user", updated.Id);
+                _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created");
             }
 
             AddAudit(actor, "enable-user", "user", updated.Id, "success", "User enabled.");
@@ -239,9 +242,11 @@ public sealed class InMemoryState :
             {
                 _testUserEnabledAtUtc = null;
                 AddAlert(HealthSeverity.Red, "Test account auto-disabled", "The seeded test account was disabled and all active sessions were revoked.", "user", updated.Id);
+                _eventPublisher.Publish(ControlPlaneStreamTopics.Alerts, "created");
             }
 
             AddAudit(actor, "disable-user", "user", updated.Id, "success", reason);
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "revoked-subject", updated.Id);
             return updated;
         }
     }
@@ -261,6 +266,7 @@ public sealed class InMemoryState :
             }
 
             AddAudit("gateway", "heartbeat", "gateway", gateway.Id, "success", $"Gateway {gateway.Name} reported health {gateway.Health}.");
+            _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "upserted", gateway.Id);
             return gateway;
         }
     }
@@ -274,6 +280,8 @@ public sealed class InMemoryState :
             {
                 _healthSamples.RemoveRange(0, _healthSamples.Count - 5000);
             }
+
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Telemetry, "recorded", sample.DeviceId);
         }
     }
 
@@ -312,6 +320,7 @@ public sealed class InMemoryState :
             _users.RemoveAll(user => user.Id == userId);
             _sessions.RemoveAll(session => session.UserId == userId);
             AddAudit("admin", "delete-user", "user", userId, "success", "User record deleted.");
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-subject", userId);
         }
     }
 
@@ -342,6 +351,8 @@ public sealed class InMemoryState :
             _sessions.RemoveAll(session => session.DeviceId == deviceId);
             _healthSamples.RemoveAll(sample => sample.DeviceId == deviceId);
             AddAudit("admin", "delete-device", "device", deviceId, "success", "Device record deleted.");
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-device", deviceId);
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Telemetry, "deleted-device", deviceId);
         }
     }
 
@@ -352,6 +363,8 @@ public sealed class InMemoryState :
             _gateways.RemoveAll(gateway => gateway.Id == gatewayId);
             _sessions.RemoveAll(session => session.GatewayId == gatewayId);
             AddAudit("admin", "delete-gateway", "gateway", gatewayId, "success", "Gateway record deleted.");
+            _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "deleted", gatewayId);
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "deleted-gateway", gatewayId);
         }
     }
 
@@ -398,6 +411,7 @@ public sealed class InMemoryState :
             }
 
             AddAudit("admin", "upsert-session", "session", session.Id, "success", "Session record created or updated.");
+            _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "upserted", session.Id);
             return session;
         }
     }
@@ -410,6 +424,7 @@ public sealed class InMemoryState :
             if (removed)
             {
                 AddAudit(actor, "revoke-session", "session", sessionId, "success", reason);
+                _eventPublisher.Publish(ControlPlaneStreamTopics.Sessions, "revoked", sessionId);
             }
 
             return removed;
@@ -578,16 +593,18 @@ public sealed class InMemoryState :
         }
     }
 
-    private void AddAlert(HealthSeverity severity, string title, string description, string targetType, string targetId)
+    private Alert AddAlert(HealthSeverity severity, string title, string description, string targetType, string targetId)
     {
-        _alerts.Add(new Alert(
+        var alert = new Alert(
             Guid.NewGuid().ToString("n"),
             severity,
             title,
             description,
             targetType,
             targetId,
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow);
+        _alerts.Add(alert);
+        return alert;
     }
 
     private void AddAudit(string actor, string action, string targetType, string targetId, string outcome, string detail)

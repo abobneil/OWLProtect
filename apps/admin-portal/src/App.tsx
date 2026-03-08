@@ -154,7 +154,7 @@ export function App() {
                 <p className="eyebrow">Gateway Health</p>
                 <h2>Regional gateway pool</h2>
               </div>
-              <span className="muted">WebSocket-backed every 10 seconds</span>
+              <span className="muted">Event-driven WebSocket fanout</span>
             </div>
             <div className="gateway-grid">
               {seededSnapshot.gateways.map((gateway) => (
@@ -228,4 +228,3 @@ export function App() {
     </div>
   );
 }
-

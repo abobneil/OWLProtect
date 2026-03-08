@@ -4,6 +4,8 @@ using OWLProtect.ControlPlane.Api;
 using OWLProtect.Core;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<ControlPlaneEventStream>();
+builder.Services.AddSingleton<IControlPlaneEventPublisher>(serviceProvider => serviceProvider.GetRequiredService<ControlPlaneEventStream>());
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection("Persistence"));
 builder.Services.Configure<SecretManagementOptions>(builder.Configuration.GetSection("SecretManagement"));
 builder.Services.Configure<AuditRetentionOptions>(builder.Configuration.GetSection("AuditRetention"));
@@ -66,6 +68,7 @@ else
 builder.Services.AddSingleton<IBootstrapAdminCredentialsProvider, ConfigurationBootstrapAdminCredentialsProvider>();
 builder.Services.AddSingleton<AuditRetentionService>();
 builder.Services.AddHostedService<AuditRetentionWorker>();
+builder.Services.AddHostedService<TestUserDisableWorker>();
 builder.Services.AddSingleton<IAuthProvider, EntraAuthProvider>();
 builder.Services.AddSingleton<IAuthProvider, GenericOidcAuthProvider>();
 builder.Services.AddSingleton<OpenIdConnectTokenValidator>();
@@ -664,11 +667,10 @@ privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionServic
 // Gateway/device trust material is still pending; keep the current heartbeat surface available until mTLS-backed machine auth lands.
 api.MapPost("/gateways/heartbeat", (Gateway gateway, IGatewayRepository gatewayRepository) => Results.Ok(gatewayRepository.UpsertGatewayHeartbeat(gateway)));
 
-MapSocket<IDashboardQueryService, DashboardSnapshot>(webSocketApi, "/admin-dashboard", service => service.Snapshot(), AdminRole.ReadOnly, "ws.dashboard.read");
-MapSocket<IAlertRepository, IReadOnlyList<Alert>>(webSocketApi, "/alert-stream", service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
-MapSocket<IGatewayRepository, IReadOnlyList<Gateway>>(webSocketApi, "/gateway-health", service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");
-MapSocket<IHealthSampleRepository, IReadOnlyList<HealthSample>>(webSocketApi, "/client-health", service => service.ListHealthSamples(), AdminRole.ReadOnly, "ws.health.read");
-MapSocket<ISessionRepository, IReadOnlyList<TunnelSession>>(webSocketApi, "/client-session", service => service.ListSessions(), AdminRole.ReadOnly, "ws.sessions.read");
+MapEventStream<IAlertRepository, IReadOnlyList<Alert>>(webSocketApi, "/alert-stream", ControlPlaneStreamTopics.Alerts, service => service.ListAlerts(), AdminRole.ReadOnly, "ws.alerts.read");
+MapEventStream<IGatewayRepository, IReadOnlyList<Gateway>>(webSocketApi, "/gateway-health", ControlPlaneStreamTopics.GatewayHealth, service => service.ListGateways(), AdminRole.ReadOnly, "ws.gateways.read");
+MapEventStream<IHealthSampleRepository, IReadOnlyList<HealthSample>>(webSocketApi, "/client-health", ControlPlaneStreamTopics.Telemetry, service => service.ListHealthSamples(), AdminRole.ReadOnly, "ws.health.read");
+MapEventStream<ISessionRepository, IReadOnlyList<TunnelSession>>(webSocketApi, "/client-session", ControlPlaneStreamTopics.Sessions, service => service.ListSessions(), AdminRole.ReadOnly, "ws.sessions.read");
 
 app.Run();
 
@@ -706,15 +708,16 @@ static bool IsKnownProvider(string provider) =>
     string.Equals(provider, "entra", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(provider, "oidc", StringComparison.OrdinalIgnoreCase);
 
-static void MapSocket<TService, TPayload>(
+static void MapEventStream<TService, TPayload>(
     IEndpointRouteBuilder routes,
     string path,
+    string topic,
     Func<TService, TPayload> payloadFactory,
     AdminRole minimumRole,
     string policyName)
     where TService : notnull
 {
-    routes.Map(path, async (HttpContext context, TService service) =>
+    routes.Map(path, async (HttpContext context, TService service, ControlPlaneEventStream eventStream) =>
     {
         var requirement = ControlPlaneAuthorizationPolicies.Admin(policyName, minimumRole, requireCompliantAdmin: true, requireStepUp: false);
         if (!ControlPlaneSecurity.TryAuthorize(context, requirement, out var failure))
@@ -730,12 +733,91 @@ static void MapSocket<TService, TPayload>(
             return;
         }
 
+        if (context.Request.Query.TryGetValue("afterSequence", out var rawAfterSequence) &&
+            !string.IsNullOrWhiteSpace(rawAfterSequence) &&
+            !long.TryParse(rawAfterSequence, out _))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsJsonAsync(new ValidationErrorResponse(
+                "Request validation failed.",
+                "validation_failed",
+                [$"Query string 'afterSequence' must be a valid integer."]),
+                context.RequestAborted);
+            return;
+        }
+
+        long? afterSequence = null;
+        if (context.Request.Query.TryGetValue("afterSequence", out rawAfterSequence) &&
+            long.TryParse(rawAfterSequence, out var parsedAfterSequence))
+        {
+            afterSequence = parsedAfterSequence;
+        }
+
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        using var subscription = eventStream.Subscribe(topic);
+        var latestSequence = eventStream.GetLatestSequence(topic);
+        if (!afterSequence.HasValue || afterSequence.Value != latestSequence)
+        {
+            await SendFrameAsync(
+                socket,
+                new ControlPlaneStreamFrame(
+                    "snapshot",
+                    topic,
+                    latestSequence,
+                    DateTimeOffset.UtcNow,
+                    afterSequence.HasValue ? "reset" : "initial",
+                    EntityId: null,
+                    payloadFactory(service)),
+                context.RequestAborted);
+        }
+
         while (socket.State == WebSocketState.Open && !context.RequestAborted.IsCancellationRequested)
         {
-            var payload = JsonSerializer.SerializeToUtf8Bytes(payloadFactory(service));
-            await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, context.RequestAborted);
-            await Task.Delay(TimeSpan.FromSeconds(5), context.RequestAborted);
+            var waitToReadTask = subscription.Reader.WaitToReadAsync(context.RequestAborted).AsTask();
+            var keepAliveTask = Task.Delay(TimeSpan.FromSeconds(30), context.RequestAborted);
+            var completedTask = await Task.WhenAny(waitToReadTask, keepAliveTask);
+
+            if (completedTask == keepAliveTask)
+            {
+                await SendFrameAsync(
+                    socket,
+                    new ControlPlaneStreamFrame(
+                        "keepalive",
+                        topic,
+                        eventStream.GetLatestSequence(topic),
+                        DateTimeOffset.UtcNow,
+                        EventType: null,
+                        EntityId: null,
+                        Payload: null),
+                    context.RequestAborted);
+                continue;
+            }
+
+            if (!await waitToReadTask)
+            {
+                break;
+            }
+
+            while (subscription.Reader.TryRead(out var notification))
+            {
+                await SendFrameAsync(
+                    socket,
+                    new ControlPlaneStreamFrame(
+                        "event",
+                        topic,
+                        notification.Sequence,
+                        notification.OccurredAtUtc,
+                        notification.EventType,
+                        notification.EntityId,
+                        payloadFactory(service)),
+                    context.RequestAborted);
+            }
         }
     });
+}
+
+static async Task SendFrameAsync(WebSocket socket, ControlPlaneStreamFrame frame, CancellationToken cancellationToken)
+{
+    var payload = JsonSerializer.SerializeToUtf8Bytes(frame);
+    await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
 }
