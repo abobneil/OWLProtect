@@ -1,5 +1,6 @@
 export type AdminRole = "SuperAdmin" | "Operator" | "ReadOnly";
 export type PlatformSessionKind = "Admin" | "User" | "Client";
+export type MachineTrustSubjectKind = "Gateway" | "Device";
 export const CONTROL_PLANE_API_VERSION = "v1";
 export const CONTROL_PLANE_API_PREFIX = `/api/${CONTROL_PLANE_API_VERSION}`;
 export const CONTROL_PLANE_SOCKET_PREFIX = `${CONTROL_PLANE_API_PREFIX}/ws`;
@@ -201,6 +202,26 @@ export interface PlatformSession {
   lastAuthenticatedAtUtc: string;
   stepUpExpiresAtUtc: string | null;
   revokedAtUtc: string | null;
+}
+
+export interface MachineTrustMaterial {
+  id: string;
+  kind: MachineTrustSubjectKind;
+  subjectId: string;
+  subjectName: string;
+  thumbprint: string;
+  certificatePem: string;
+  issuedAtUtc: string;
+  notBeforeUtc: string;
+  expiresAtUtc: string;
+  rotateAfterUtc: string;
+  revokedAtUtc: string | null;
+  replacedById: string | null;
+}
+
+export interface IssuedMachineTrustMaterial {
+  material: MachineTrustMaterial;
+  privateKeyPem: string;
 }
 
 export interface SessionTokenPair {

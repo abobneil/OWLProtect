@@ -17,7 +17,8 @@ public sealed class InMemoryState :
     IAuthProviderConfigRepository,
     IAuditRepository,
     IAuditWriter,
-    IAuditRetentionRepository
+    IAuditRetentionRepository,
+    IMachineTrustRepository
 {
     private readonly Lock _gate = new();
     private readonly IControlPlaneEventPublisher _eventPublisher;
@@ -36,6 +37,7 @@ public sealed class InMemoryState :
     private readonly List<AuthProviderConfig> _authProviders = [.. SeedData.AuthProviders];
     private readonly List<AuditEvent> _auditEvents = [.. SeedData.AuditEvents];
     private readonly List<AuditRetentionCheckpoint> _auditRetentionCheckpoints = [];
+    private readonly List<MachineTrustMaterial> _trustMaterials = [];
 
     public InMemoryState(IBootstrapAdminCredentialsProvider bootstrapAdminCredentialsProvider, IControlPlaneEventPublisher eventPublisher)
     {
@@ -117,7 +119,7 @@ public sealed class InMemoryState :
     {
         lock (_gate)
         {
-            if (_defaultAdmin.Password != currentPassword)
+            if (!PasswordProtector.Verify(currentPassword, _defaultAdmin.Password))
             {
                 throw new InvalidOperationException("Current password is incorrect.");
             }
@@ -565,6 +567,109 @@ public sealed class InMemoryState :
         }
     }
 
+    public IReadOnlyList<MachineTrustMaterial> ListTrustMaterials()
+    {
+        lock (_gate)
+        {
+            return [.. _trustMaterials.OrderByDescending(item => item.IssuedAtUtc)];
+        }
+    }
+
+    public IReadOnlyList<MachineTrustMaterial> ListTrustMaterials(MachineTrustSubjectKind kind, string subjectId)
+    {
+        lock (_gate)
+        {
+            return [.. _trustMaterials
+                .Where(item => item.Kind == kind && string.Equals(item.SubjectId, subjectId, StringComparison.Ordinal))
+                .OrderByDescending(item => item.IssuedAtUtc)];
+        }
+    }
+
+    public MachineTrustMaterial? GetTrustMaterial(string trustMaterialId)
+    {
+        lock (_gate)
+        {
+            return _trustMaterials.SingleOrDefault(item => item.Id == trustMaterialId);
+        }
+    }
+
+    public IssuedMachineTrustMaterial IssueTrustMaterial(MachineTrustSubjectKind kind, string subjectId, string subjectName, string actor)
+    {
+        lock (_gate)
+        {
+            if (_trustMaterials.Any(item =>
+                    item.Kind == kind &&
+                    string.Equals(item.SubjectId, subjectId, StringComparison.Ordinal) &&
+                    item.RevokedAtUtc is null &&
+                    item.ExpiresAtUtc > DateTimeOffset.UtcNow))
+            {
+                throw new InvalidOperationException($"Active trust material already exists for {kind.ToString().ToLowerInvariant()} '{subjectId}'. Rotate it instead.");
+            }
+
+            var issued = MachineTrustFactory.Create(kind, subjectId, subjectName);
+            _trustMaterials.Add(issued.Material);
+            AddAudit(actor, "issue-machine-trust", kind.ToString().ToLowerInvariant(), subjectId, "success", $"Issued trust material {issued.Material.Id}.");
+            return issued;
+        }
+    }
+
+    public IssuedMachineTrustMaterial RotateTrustMaterial(MachineTrustSubjectKind kind, string subjectId, string subjectName, string actor)
+    {
+        lock (_gate)
+        {
+            var activeIndexes = _trustMaterials
+                .Select((item, index) => (item, index))
+                .Where(item =>
+                    item.item.Kind == kind &&
+                    string.Equals(item.item.SubjectId, subjectId, StringComparison.Ordinal) &&
+                    item.item.RevokedAtUtc is null &&
+                    item.item.ExpiresAtUtc > DateTimeOffset.UtcNow)
+                .Select(item => item.index)
+                .ToArray();
+
+            if (activeIndexes.Length == 0)
+            {
+                throw new InvalidOperationException($"No active trust material exists for {kind.ToString().ToLowerInvariant()} '{subjectId}'.");
+            }
+
+            var issued = MachineTrustFactory.Create(kind, subjectId, subjectName);
+            _trustMaterials.Add(issued.Material);
+
+            foreach (var activeIndex in activeIndexes)
+            {
+                _trustMaterials[activeIndex] = _trustMaterials[activeIndex] with
+                {
+                    RevokedAtUtc = DateTimeOffset.UtcNow,
+                    ReplacedById = issued.Material.Id
+                };
+            }
+
+            AddAudit(actor, "rotate-machine-trust", kind.ToString().ToLowerInvariant(), subjectId, "success", $"Rotated trust material to {issued.Material.Id}.");
+            return issued;
+        }
+    }
+
+    public bool RevokeTrustMaterial(string trustMaterialId, string actor, string reason)
+    {
+        lock (_gate)
+        {
+            var index = _trustMaterials.FindIndex(item => item.Id == trustMaterialId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            if (_trustMaterials[index].RevokedAtUtc is not null)
+            {
+                return false;
+            }
+
+            _trustMaterials[index] = _trustMaterials[index] with { RevokedAtUtc = DateTimeOffset.UtcNow };
+            AddAudit(actor, "revoke-machine-trust", "machine-trust", trustMaterialId, "success", reason);
+            return true;
+        }
+    }
+
     public bool DisableExpiredTestUser()
     {
         lock (_gate)
@@ -651,4 +756,7 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(List<AuditRetentionCheckpoint>))]
 [JsonSerializable(typeof(PlatformSession))]
 [JsonSerializable(typeof(IssuedPlatformSession))]
+[JsonSerializable(typeof(MachineTrustMaterial))]
+[JsonSerializable(typeof(List<MachineTrustMaterial>))]
+[JsonSerializable(typeof(IssuedMachineTrustMaterial))]
 public partial class OwlProtectJsonContext : JsonSerializerContext;

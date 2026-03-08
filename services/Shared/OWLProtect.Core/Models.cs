@@ -35,6 +35,12 @@ public enum PlatformSessionKind
     Client
 }
 
+public enum MachineTrustSubjectKind
+{
+    Gateway,
+    Device
+}
+
 public sealed record User(
     string Id,
     string Username,
@@ -224,3 +230,21 @@ public sealed record IssuedPlatformSession(
     PlatformSession Session,
     string AccessToken,
     string RefreshToken);
+
+public sealed record MachineTrustMaterial(
+    string Id,
+    MachineTrustSubjectKind Kind,
+    string SubjectId,
+    string SubjectName,
+    string Thumbprint,
+    string CertificatePem,
+    DateTimeOffset IssuedAtUtc,
+    DateTimeOffset NotBeforeUtc,
+    DateTimeOffset ExpiresAtUtc,
+    DateTimeOffset RotateAfterUtc,
+    DateTimeOffset? RevokedAtUtc,
+    string? ReplacedById);
+
+public sealed record IssuedMachineTrustMaterial(
+    MachineTrustMaterial Material,
+    string PrivateKeyPem);
