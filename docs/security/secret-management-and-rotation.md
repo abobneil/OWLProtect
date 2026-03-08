@@ -10,6 +10,7 @@ This document defines the current secret-loading strategy and the minimum rotati
   - `SecretManagement__BootstrapAdminPassword`
   - `SecretManagement__BootstrapAdminPasswordFile`
   - `SecretManagement__BootstrapAdminPasswordHash`
+  - `SecretManagement__BootstrapAdminPasswordHashFile`
 - Generated bootstrap passwords are allowed only when `SecretManagement__AllowGeneratedBootstrapAdminPassword=true`, which is intended for disposable development environments.
 
 ## Bootstrap Admin Rotation
@@ -36,5 +37,6 @@ This document defines the current secret-loading strategy and the minimum rotati
   - `POST /api/v1/devices/{deviceId}/trust-material/rotate`
 - Issuance responses return a JSON bundle containing the public certificate metadata and the private key. Store that bundle in a mounted file and point the runtime to it with `Gateway__TrustBundleFile`.
 - Gateways now authenticate heartbeat and self-rotation requests with the issued trust bundle. Once a bundle is present, the gateway rotates it automatically through `POST /api/v1/gateways/trust-material/rotate` after `rotateAfterUtc`.
+- Devices can use the same signed machine-auth flow to self-rotate through `POST /api/v1/devices/trust-material/rotate` once a trust bundle has been provisioned to the client runtime.
 - Initial provisioning is still an operator action: create or confirm the gateway record, issue trust material, write the JSON response to the configured bundle file, and then start or restart the gateway.
 - Admins may revoke any issued machine credential through `POST /api/v1/trust-material/{trustMaterialId}/revoke`.

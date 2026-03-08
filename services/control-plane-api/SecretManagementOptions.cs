@@ -6,5 +6,6 @@ public sealed class SecretManagementOptions
     public string? BootstrapAdminPassword { get; set; }
     public string? BootstrapAdminPasswordFile { get; set; }
     public string? BootstrapAdminPasswordHash { get; set; }
+    public string? BootstrapAdminPasswordHashFile { get; set; }
     public bool AllowGeneratedBootstrapAdminPassword { get; set; }
 }

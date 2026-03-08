@@ -37,7 +37,10 @@ internal sealed class OpenIdConnectTokenValidator
 {
     private static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(2);
     private readonly ConcurrentDictionary<string, ConfigurationManager<OpenIdConnectConfiguration>> _configurationManagers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly JwtSecurityTokenHandler _tokenHandler = new();
+    private readonly JwtSecurityTokenHandler _tokenHandler = new()
+    {
+        MapInboundClaims = false
+    };
 
     public async Task<IdpUserContext> ValidateAsync(AuthProviderConfig config, string token, CancellationToken cancellationToken)
     {
@@ -161,7 +164,9 @@ internal sealed class OpenIdConnectTokenValidator
             .GroupBy(claim => claim.Type, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.SelectMany(claim => ExpandClaimValues(claim.Value)).ToArray(), StringComparer.Ordinal);
 
-        var subject = GetFirstClaimValue(claimLookup, JwtRegisteredClaimNames.Sub);
+        var subject =
+            GetFirstClaimValue(claimLookup, JwtRegisteredClaimNames.Sub) ??
+            GetFirstClaimValue(claimLookup, ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(subject))
         {
             throw new AuthProviderValidationException(
@@ -177,7 +182,7 @@ internal sealed class OpenIdConnectTokenValidator
             GetFirstClaimValue(claimLookup, "email") ??
             subject;
 
-        var username = ResolveFirstConfiguredClaimValue(claimLookup, config.UsernameClaimPaths) ?? displayName;
+        var username = ResolveUsername(config, claimLookup, displayName);
         var groups = ResolveAllConfiguredClaimValues(claimLookup, config.GroupClaimPaths);
         var mfaSatisfied = ResolveMfaSatisfied(claimLookup, config.MfaClaimPaths);
         if (config.RequireMfa && !mfaSatisfied)
@@ -233,6 +238,25 @@ internal sealed class OpenIdConnectTokenValidator
         }
 
         return null;
+    }
+
+    private static string ResolveUsername(AuthProviderConfig config, IReadOnlyDictionary<string, string[]> claimLookup, string displayName)
+    {
+        if (config.UsernameClaimPaths.Count == 0)
+        {
+            return displayName;
+        }
+
+        var username = ResolveFirstConfiguredClaimValue(claimLookup, config.UsernameClaimPaths);
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            return username;
+        }
+
+        throw new AuthProviderValidationException(
+            "Validated token is missing the configured username claim.",
+            "username-claim-missing",
+            $"Provider '{config.Id}' token did not include any configured username claim. Tried: {string.Join(", ", config.UsernameClaimPaths)}.");
     }
 
     private static IReadOnlyList<string> ResolveAllConfiguredClaimValues(IReadOnlyDictionary<string, string[]> claimLookup, IReadOnlyList<string> claimPaths)
