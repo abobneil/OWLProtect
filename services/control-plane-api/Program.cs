@@ -161,6 +161,44 @@ sessionGroup.MapPost("/auth/session/revoke", (HttpContext context, IPlatformSess
     return revoked ? Results.NoContent() : Results.NotFound();
 });
 
+var userSessionGroup = app.MapGroup(string.Empty);
+userSessionGroup.AddEndpointFilterFactory(ControlPlaneSecurity.RequireUser);
+userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSessionIssueRequest request, IDeviceRepository deviceRepository, IPlatformSessionStore sessionStore) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context)!;
+    var user = identity.User!;
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == request.DeviceId);
+    if (device is null)
+    {
+        return Results.BadRequest(new { error = "Device not found." });
+    }
+
+    if (!string.Equals(device.UserId, user.Id, StringComparison.Ordinal))
+    {
+        context.RequestServices.GetRequiredService<IAuditWriter>()
+            .WriteAudit(identity.Actor, "client-session-issue", "device", request.DeviceId, "failure", "User attempted to issue a client session for a device they do not own.");
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    }
+
+    if (!device.Managed)
+    {
+        context.RequestServices.GetRequiredService<IAuditWriter>()
+            .WriteAudit(identity.Actor, "client-session-issue", "device", request.DeviceId, "failure", "User attempted to issue a client session for an unmanaged device.");
+        return Results.BadRequest(new { error = "Device must be managed before a client session can be issued." });
+    }
+
+    var issuedSession = sessionStore.CreateSession(PlatformSessionKind.Client, device.Id, device.Name, role: null);
+    return Results.Ok(new ClientAuthSessionResponse(
+        issuedSession.Session,
+        new SessionTokenPair(
+            issuedSession.AccessToken,
+            issuedSession.Session.AccessTokenExpiresAtUtc,
+            issuedSession.RefreshToken,
+            issuedSession.Session.RefreshTokenExpiresAtUtc),
+        user,
+        device));
+});
+
 var bootstrapAdminGroup = app.MapGroup(string.Empty);
 bootstrapAdminGroup.AddEndpointFilterFactory((factoryContext, next) =>
     ControlPlaneSecurity.RequireAdmin(factoryContext, next, AdminRole.SuperAdmin, requireCompliantAdmin: false, requireStepUp: false));
@@ -375,6 +413,10 @@ privilegedAdminGroup.MapPost("/users/{userId}/disable", (HttpContext context, st
         var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
         var updatedUser = userRepository.DisableUser(userId, actor, "User disabled by admin.");
         platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.User, userId, actor, "User was disabled.");
+        foreach (var deviceId in context.RequestServices.GetRequiredService<IDeviceRepository>().ListDevices().Where(device => device.UserId == userId).Select(device => device.Id))
+        {
+            platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.Client, deviceId, actor, "Owning user was disabled.");
+        }
         return Results.Ok(updatedUser);
     }
     catch (InvalidOperationException exception)
@@ -386,11 +428,16 @@ privilegedAdminGroup.MapDelete("/users/{userId}", (HttpContext context, string u
 {
     var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
     platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.User, userId, actor, "User was deleted.");
+    foreach (var deviceId in context.RequestServices.GetRequiredService<IDeviceRepository>().ListDevices().Where(device => device.UserId == userId).Select(device => device.Id))
+    {
+        platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.Client, deviceId, actor, "Owning user was deleted.");
+    }
     userRepository.DeleteUser(userId);
     return Results.NoContent();
 });
-privilegedAdminGroup.MapDelete("/devices/{deviceId}", (string deviceId, IDeviceRepository deviceRepository) =>
+privilegedAdminGroup.MapDelete("/devices/{deviceId}", (HttpContext context, string deviceId, IDeviceRepository deviceRepository, IPlatformSessionStore platformSessionStore) =>
 {
+    platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.Client, deviceId, ControlPlaneSecurity.GetIdentity(context)!.Actor, "Device was deleted.");
     deviceRepository.DeleteDevice(deviceId);
     return Results.NoContent();
 });

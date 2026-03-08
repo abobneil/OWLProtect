@@ -114,6 +114,30 @@ internal static class ControlPlaneSecurity
         };
     }
 
+    public static EndpointFilterDelegate RequireUser(
+        EndpointFilterFactoryContext _,
+        EndpointFilterDelegate next)
+    {
+        return async invocationContext =>
+        {
+            var httpContext = invocationContext.HttpContext;
+            var identity = GetIdentity(httpContext);
+            if (identity is null)
+            {
+                AuditFailure(httpContext, actor: "anonymous", "authentication-required", "Authenticated user session required.");
+                return TypedResults.Json(new { error = "Authenticated user session required." }, statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            if (identity.User is null)
+            {
+                AuditFailure(httpContext, identity.Actor, "authorization-denied", "End-user session required.");
+                return TypedResults.Json(new { error = "End-user session required." }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            return await next(invocationContext);
+        };
+    }
+
     public static bool HasActiveStepUp(PlatformSession session) =>
         session.StepUpExpiresAtUtc is not null && session.StepUpExpiresAtUtc > DateTimeOffset.UtcNow;
 

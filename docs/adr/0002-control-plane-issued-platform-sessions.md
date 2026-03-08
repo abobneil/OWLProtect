@@ -26,3 +26,9 @@ Validate external tokens in the control plane, then issue OWLProtect-managed ses
   - Implement token validation, session issuance, and refresh flows.
   - Add RBAC and privileged-action checks to the control plane.
   - Define client and gateway trust material rotation.
+
+## Current Implementation Notes
+
+- Admin and end-user platform sessions are issued directly by the control plane.
+- Client platform sessions are issued as device-bound sessions after an authenticated end-user session exchanges for a managed device.
+- This user-to-client exchange is a transitional trust bridge until device-specific trust material and rotation workflows are implemented.
