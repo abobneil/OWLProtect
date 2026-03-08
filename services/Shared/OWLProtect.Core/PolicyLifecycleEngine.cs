@@ -230,6 +230,12 @@ public static class PolicyLifecycleEngine
             return Deny("device_unmanaged", "Device must be managed before a session can be authorized.");
         }
 
+        var gatewayScore = GatewayDiagnostics.ScoreGateway(gateway);
+        if (!gatewayScore.Available)
+        {
+            return Deny("gateway_unavailable", "Gateway is not healthy enough to accept or retain sessions.");
+        }
+
         var resolution = ResolvePolicies(user, device, policies);
         if (resolution.PolicyIds.Count == 0)
         {

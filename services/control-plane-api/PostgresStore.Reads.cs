@@ -172,7 +172,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms, tenant_id
+            SELECT id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms, tenant_id, last_heartbeat_utc
             FROM gateways
             ORDER BY name
             """,

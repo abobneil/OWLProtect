@@ -1,13 +1,15 @@
-using OWLProtect.Core;
-
 namespace OWLProtect.WindowsClientService;
 
 public sealed record ClientStatus(
     bool Connected,
     string DeviceName,
     string CurrentGateway,
-    ConnectionState State,
+    string State,
+    string DiagnosticScope,
     string UserMessage,
+    string DiagnosticDetail,
+    IReadOnlyList<string> FailoverGateways,
+    IReadOnlyList<string> Timeline,
     int LatencyMs,
     int JitterMs,
     int SignalStrengthPercent,
@@ -16,4 +18,3 @@ public sealed record ClientStatus(
 
 public sealed record ConnectCommand(bool SilentSsoPreferred);
 public sealed record PipeCommand(string Command, bool SilentSsoPreferred);
-

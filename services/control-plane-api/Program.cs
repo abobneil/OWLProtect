@@ -74,6 +74,7 @@ builder.Services.AddSingleton<IBootstrapAdminCredentialsProvider, ConfigurationB
 builder.Services.AddSingleton<IPlatformBootstrapSettingsProvider, ConfigurationPlatformBootstrapSettingsProvider>();
 builder.Services.AddSingleton<AuditRetentionService>();
 builder.Services.AddSingleton<SessionRevalidationService>();
+builder.Services.AddSingleton<GatewayDiagnosticsQueryService>();
 builder.Services.AddHostedService<AuditRetentionWorker>();
 builder.Services.AddHostedService<TestUserDisableWorker>();
 builder.Services.AddHostedService<SessionRevalidationWorker>();
@@ -316,7 +317,8 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
         user,
         device,
         decision.Resolution!,
-        decision.Bundle!));
+        decision.Bundle!,
+        decision.Placement!));
 });
 
 var bootstrapAdminGroup = api.MapGroup(string.Empty);
@@ -506,6 +508,26 @@ compliantAdminGroup.MapGet("/gateways/query", (IGatewayRepository gatewayReposit
     return Results.Ok(query.ToArray());
 });
 compliantAdminGroup.MapGet("/gateway-pools", (IGatewayPoolRepository gatewayPoolRepository) => Results.Ok(gatewayPoolRepository.ListGatewayPools()));
+compliantAdminGroup.MapGet("/gateway-pools/health", (GatewayDiagnosticsQueryService queryService, string? tenantId) =>
+    Results.Ok(queryService.ListGatewayPools(tenantId)));
+compliantAdminGroup.MapGet("/gateways/placement", (GatewayDiagnosticsQueryService queryService, IDeviceRepository deviceRepository, string? tenantId, string? deviceId, string? preferredRegion) =>
+{
+    var effectiveTenantId = tenantId;
+    if (string.IsNullOrWhiteSpace(effectiveTenantId) && !string.IsNullOrWhiteSpace(deviceId))
+    {
+        effectiveTenantId = deviceRepository.ListDevices().SingleOrDefault(device => string.Equals(device.Id, deviceId, StringComparison.Ordinal))?.TenantId;
+    }
+
+    if (string.IsNullOrWhiteSpace(effectiveTenantId))
+    {
+        return ValidationProblemResponse(["Tenant ID or device ID is required to resolve placement."]);
+    }
+
+    var placement = queryService.SelectPlacement(effectiveTenantId, preferredRegion);
+    return placement is null
+        ? NotFound("No healthy gateway placement is available.", "gateway_placement_unavailable")
+        : Results.Ok(placement);
+});
 compliantAdminGroup.MapGet("/policies", (IPolicyRepository policyRepository) => Results.Ok(policyRepository.ListPolicies()));
 compliantAdminGroup.MapGet("/policies/{policyId}", (string policyId, IPolicyRepository policyRepository) =>
 {
@@ -560,7 +582,16 @@ compliantAdminGroup.MapGet("/sessions/query", (ISessionRepository sessionReposit
 });
 compliantAdminGroup.MapGet("/alerts", (IAlertRepository alertRepository) => Results.Ok(alertRepository.ListAlerts()));
 compliantAdminGroup.MapGet("/telemetry/query", (IHealthSampleRepository healthSampleRepository) => Results.Ok(healthSampleRepository.ListHealthSamples()));
+compliantAdminGroup.MapGet("/telemetry/diagnostics", (GatewayDiagnosticsQueryService queryService, string? tenantId) =>
+    Results.Ok(queryService.ListDeviceDiagnostics(tenantId)));
+compliantAdminGroup.MapGet("/devices/{deviceId}/diagnostics", (string deviceId, GatewayDiagnosticsQueryService queryService) =>
+{
+    var diagnostics = queryService.GetDeviceDiagnostics(deviceId);
+    return diagnostics is null ? NotFound("Device not found.", "device_not_found") : Results.Ok(diagnostics);
+});
 compliantAdminGroup.MapGet("/map/connections", (IDeviceRepository deviceRepository) => Results.Ok(deviceRepository.GetConnectionMap()));
+compliantAdminGroup.MapGet("/map/connections/cities", (GatewayDiagnosticsQueryService queryService, string? tenantId) =>
+    Results.Ok(queryService.GetConnectionCityMap(tenantId)));
 compliantAdminGroup.MapGet("/auth/providers", (IAuthProviderConfigRepository authProviderConfigRepository) => Results.Ok(authProviderConfigRepository.ListAuthProviders()));
 compliantAdminGroup.MapGet("/trust-material/query", (IMachineTrustRepository trustRepository, string? kind, string? subjectId) =>
 {

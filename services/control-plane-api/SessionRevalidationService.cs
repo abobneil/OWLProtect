@@ -6,6 +6,7 @@ internal sealed class SessionRevalidationService(
     IUserRepository userRepository,
     IDeviceRepository deviceRepository,
     IGatewayRepository gatewayRepository,
+    IGatewayPoolRepository gatewayPoolRepository,
     IPolicyRepository policyRepository,
     ISessionRepository sessionRepository,
     IPlatformSessionStore platformSessionStore,
@@ -16,10 +17,16 @@ internal sealed class SessionRevalidationService(
 
     public SessionAuthorizationDecision AuthorizeForClient(User user, Device device)
     {
-        var gateway = SelectGateway(user.TenantId);
-        return gateway is null
+        var placement = SelectPlacement(user.TenantId);
+        var gateway = placement is null
+            ? null
+            : gatewayRepository.ListGateways().SingleOrDefault(item => string.Equals(item.Id, placement.GatewayId, StringComparison.Ordinal));
+        return gateway is null || placement is null
             ? new SessionAuthorizationDecision(false, "gateway_unavailable", "No active gateway is available for the tenant.", null, null, null)
-            : PolicyLifecycleEngine.AuthorizeSession(user, device, gateway, policyRepository.ListPolicies(), _revalidationInterval);
+            : PolicyLifecycleEngine.AuthorizeSession(user, device, gateway, policyRepository.ListPolicies(), _revalidationInterval) with
+            {
+                Placement = placement
+            };
     }
 
     public SessionAuthorizationDecision AuthorizeForTunnel(string userId, string deviceId, string gatewayId)
@@ -49,6 +56,10 @@ internal sealed class SessionRevalidationService(
     public int RevalidateActiveSessions(string actor, string? tenantId = null, string? deviceId = null)
     {
         var updatedCount = 0;
+        var users = userRepository.ListUsers();
+        var devices = deviceRepository.ListDevices();
+        var gateways = gatewayRepository.ListGateways();
+        var pools = gatewayPoolRepository.ListGatewayPools();
         foreach (var session in sessionRepository.ListSessions())
         {
             if (!string.IsNullOrWhiteSpace(tenantId) && !string.Equals(session.TenantId, tenantId, StringComparison.Ordinal))
@@ -66,7 +77,23 @@ internal sealed class SessionRevalidationService(
                 continue;
             }
 
-            var decision = AuthorizeForTunnel(session.UserId, session.DeviceId, session.GatewayId);
+            var user = users.SingleOrDefault(item => string.Equals(item.Id, session.UserId, StringComparison.Ordinal));
+            var device = devices.SingleOrDefault(item => string.Equals(item.Id, session.DeviceId, StringComparison.Ordinal));
+            if (user is null || device is null)
+            {
+                sessionRepository.RevokeSession(session.Id, actor, "Session failed revalidation because the owning user or device record no longer exists.");
+                platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.Client, session.DeviceId, actor, "Device session failed revalidation because the owning records no longer exist.");
+                continue;
+            }
+
+            var placement = GatewayDiagnostics.SelectGatewayPlacement(user.TenantId, gateways, pools);
+            var targetGatewayId = session.GatewayId;
+            if (GatewayDiagnostics.ShouldFailOver(session.GatewayId, placement, gateways, pools))
+            {
+                targetGatewayId = placement!.GatewayId;
+            }
+
+            var decision = AuthorizeForTunnel(session.UserId, session.DeviceId, targetGatewayId);
             if (!decision.Authorized)
             {
                 sessionRepository.RevokeSession(session.Id, actor, $"Session failed revalidation: {decision.ErrorCode}.");
@@ -76,6 +103,7 @@ internal sealed class SessionRevalidationService(
 
             sessionRepository.UpsertSession(session with
             {
+                GatewayId = targetGatewayId,
                 TenantId = decision.Bundle!.TenantId,
                 PolicyBundleVersion = decision.Bundle.Version,
                 AuthorizedAtUtc = DateTimeOffset.UtcNow,
@@ -114,11 +142,9 @@ internal sealed class SessionRevalidationService(
             request.Managed);
     }
 
-    private Gateway? SelectGateway(string tenantId) =>
-        gatewayRepository.ListGateways()
-            .Where(gateway => string.Equals(gateway.TenantId, tenantId, StringComparison.Ordinal))
-            .OrderBy(gateway => gateway.Health == HealthSeverity.Green ? 0 : gateway.Health == HealthSeverity.Yellow ? 1 : 2)
-            .ThenBy(gateway => gateway.LoadPercent)
-            .ThenBy(gateway => gateway.LatencyMs)
-            .FirstOrDefault();
+    private GatewayPlacement? SelectPlacement(string tenantId) =>
+        GatewayDiagnostics.SelectGatewayPlacement(
+            tenantId,
+            gatewayRepository.ListGateways(),
+            gatewayPoolRepository.ListGatewayPools());
 }

@@ -28,6 +28,16 @@ public enum ConnectionState
     PolicyBlocked
 }
 
+public enum DiagnosticScope
+{
+    Healthy,
+    LocalNetwork,
+    Gateway,
+    ServerSide,
+    Policy,
+    Authentication
+}
+
 public enum PlatformSessionKind
 {
     Admin,
@@ -116,7 +126,8 @@ public sealed record Gateway(
     int CpuPercent,
     int MemoryPercent,
     int LatencyMs,
-    string TenantId = SeedData.DefaultTenantId);
+    string TenantId = SeedData.DefaultTenantId,
+    DateTimeOffset? LastHeartbeatUtc = null);
 
 public sealed record GatewayPool(
     string Id,
@@ -167,6 +178,57 @@ public sealed record HealthSample(
     bool RouteHealthy,
     DateTimeOffset SampledAtUtc,
     string Message,
+    string TenantId = SeedData.DefaultTenantId);
+
+public sealed record GatewayScore(
+    string GatewayId,
+    string GatewayName,
+    string Region,
+    HealthSeverity Health,
+    int Score,
+    bool Available,
+    int LoadPercent,
+    int LatencyMs,
+    int CpuPercent,
+    int MemoryPercent,
+    int PeerCount,
+    DateTimeOffset? LastHeartbeatUtc,
+    IReadOnlyList<string> Signals,
+    string TenantId = SeedData.DefaultTenantId);
+
+public sealed record GatewayPoolStatus(
+    string PoolId,
+    string Name,
+    IReadOnlyList<string> Regions,
+    HealthSeverity Health,
+    int Score,
+    string? PrimaryGatewayId,
+    IReadOnlyList<string> FailoverGatewayIds,
+    IReadOnlyList<GatewayScore> Gateways,
+    string TenantId = SeedData.DefaultTenantId);
+
+public sealed record GatewayPlacement(
+    string GatewayId,
+    string GatewayName,
+    string GatewayPoolId,
+    string GatewayPoolName,
+    int Score,
+    IReadOnlyList<string> FailoverGatewayIds,
+    string Summary,
+    string TenantId = SeedData.DefaultTenantId);
+
+public sealed record DeviceDiagnostics(
+    string DeviceId,
+    string DeviceName,
+    ConnectionState State,
+    DiagnosticScope Scope,
+    HealthSeverity Severity,
+    string Summary,
+    string Detail,
+    string? GatewayId,
+    string? GatewayName,
+    DateTimeOffset ObservedAtUtc,
+    IReadOnlyList<string> Signals,
     string TenantId = SeedData.DefaultTenantId);
 
 public sealed record Alert(
@@ -245,7 +307,8 @@ public sealed record SessionAuthorizationDecision(
     string Message,
     PolicyResolutionResult? Resolution,
     ResolvedPolicyBundle? Bundle,
-    DateTimeOffset? RevalidateAfterUtc);
+    DateTimeOffset? RevalidateAfterUtc,
+    GatewayPlacement? Placement = null);
 
 public sealed record DeviceEnrollmentResult(
     Device Device,
@@ -292,6 +355,16 @@ public sealed record ConnectionMapPoint(
     string Country,
     string PublicIp,
     ConnectionState ConnectionState);
+
+public sealed record ConnectionMapCityAggregate(
+    string City,
+    string Country,
+    int DeviceCount,
+    int HealthyCount,
+    int ImpactedCount,
+    int BlockedCount,
+    IReadOnlyList<string> GatewayIds,
+    string TenantId = SeedData.DefaultTenantId);
 
 public sealed record BootstrapStatus(
     bool RequiresPasswordChange,

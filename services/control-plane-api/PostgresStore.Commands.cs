@@ -384,7 +384,7 @@ public sealed partial class PostgresStore
                 latency_ms = EXCLUDED.latency_ms,
                 tenant_id = EXCLUDED.tenant_id,
                 last_heartbeat_utc = NOW()
-            RETURNING id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms, tenant_id
+            RETURNING id, name, region, health, load_percent, peer_count, cpu_percent, memory_percent, latency_ms, tenant_id, last_heartbeat_utc
             """,
             connection,
             transaction);

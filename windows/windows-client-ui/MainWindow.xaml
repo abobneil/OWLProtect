@@ -34,6 +34,8 @@
                         <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
                         <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
                     </StackPanel>
+                    <TextBlock x:Name="GatewayText" Text="Gateway: unassigned" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock x:Name="DiagnosticScopeText" Text="Diagnostic scope: Authentication" Foreground="{StaticResource MutedTextBrush}" />
                     <TextBlock x:Name="MetricsText" Text="Latency: -- ms | Jitter: -- ms | Signal: --% | Throughput: -- Mbps" Foreground="{StaticResource TextBrush}" />
                 </StackPanel>
             </Border>
@@ -41,8 +43,9 @@
             <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="22" Padding="22">
                 <StackPanel Spacing="12">
                     <TextBlock Text="Support Panel" FontSize="22" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="Current gateway, posture state, diagnostics timeline, and export flow will be surfaced here." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
-                    <TextBlock Text="Traffic-light statuses remain consistent with the admin portal." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBlock x:Name="DiagnosticDetailText" Text="Current gateway, posture state, diagnostics timeline, and export flow will be surfaced here." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBlock x:Name="FailoverText" Text="Failover chain: --" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock x:Name="TimelineText" Text="Recent activity: waiting for the first tunnel event." TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
                 </StackPanel>
             </Border>
         </Grid>
@@ -52,4 +55,3 @@
         </Border>
     </Grid>
 </Window>
-

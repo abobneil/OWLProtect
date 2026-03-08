@@ -273,19 +273,20 @@ public sealed class InMemoryState :
     {
         lock (_gate)
         {
+            var updatedGateway = gateway with { LastHeartbeatUtc = gateway.LastHeartbeatUtc ?? DateTimeOffset.UtcNow };
             var index = _gateways.FindIndex(item => item.Id == gateway.Id);
             if (index >= 0)
             {
-                _gateways[index] = gateway;
+                _gateways[index] = updatedGateway;
             }
             else
             {
-                _gateways.Add(gateway);
+                _gateways.Add(updatedGateway);
             }
 
-            AddAudit("gateway", "heartbeat", "gateway", gateway.Id, "success", $"Gateway {gateway.Name} reported health {gateway.Health}.", gateway.TenantId);
-            _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "upserted", gateway.Id);
-            return gateway;
+            AddAudit("gateway", "heartbeat", "gateway", updatedGateway.Id, "success", $"Gateway {updatedGateway.Name} reported health {updatedGateway.Health}.", updatedGateway.TenantId);
+            _eventPublisher.Publish(ControlPlaneStreamTopics.GatewayHealth, "upserted", updatedGateway.Id);
+            return updatedGateway;
         }
     }
 
@@ -773,6 +774,12 @@ public sealed class InMemoryState :
 [JsonSerializable(typeof(DashboardSnapshot))]
 [JsonSerializable(typeof(BootstrapStatus))]
 [JsonSerializable(typeof(ConnectionMapPoint[]))]
+[JsonSerializable(typeof(ConnectionMapCityAggregate[]))]
+[JsonSerializable(typeof(GatewayScore))]
+[JsonSerializable(typeof(GatewayPoolStatus[]))]
+[JsonSerializable(typeof(GatewayPlacement))]
+[JsonSerializable(typeof(DeviceDiagnostics))]
+[JsonSerializable(typeof(DeviceDiagnostics[]))]
 [JsonSerializable(typeof(List<Alert>))]
 [JsonSerializable(typeof(List<Gateway>))]
 [JsonSerializable(typeof(List<Device>))]

@@ -7,6 +7,8 @@ public sealed class DiagnosticsSamplerWorker(
     ClientSessionState state) : BackgroundService
 {
     private readonly Random _random = new();
+    private int _tick;
+    private static readonly GatewayPool LocalPool = new("pool-local", "Local Client Pool", ["us-east"], ["gw-1", "gw-2"]);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -15,22 +17,71 @@ public sealed class DiagnosticsSamplerWorker(
             var current = state.GetStatus();
             if (current.Connected)
             {
-                var latency = 18 + _random.Next(0, 16);
-                var jitter = 3 + _random.Next(0, 7);
-                var signal = 78 + _random.Next(0, 18);
-                var throughput = 145 + _random.Next(0, 60);
-                var nextState = latency > 30 ? ConnectionState.HighJitter : ConnectionState.Healthy;
+                _tick++;
+
+                var primaryDegraded = _tick % 4 == 0;
+                var localNetworkPoor = _tick % 6 == 0;
+                var gateways = CreateGatewayFleet(primaryDegraded);
+                var gatewayLookup = gateways.ToDictionary(gateway => gateway.Id, gateway => gateway.Name, StringComparer.Ordinal);
+                var placement = GatewayDiagnostics.SelectGatewayPlacement(SeedData.DefaultTenantId, gateways, [LocalPool])!;
+                var failoverGateways = placement.FailoverGatewayIds.Select(id => gatewayLookup.GetValueOrDefault(id, id)).ToArray();
+
+                var sample = BuildSample(localNetworkPoor, primaryDegraded);
+                var simulatedState = localNetworkPoor
+                    ? ConnectionState.LocalNetworkPoor
+                    : primaryDegraded
+                        ? ConnectionState.GatewayDegraded
+                        : ConnectionState.Healthy;
+                var activeGateway = gateways.Single(gateway => string.Equals(gateway.Id, placement.GatewayId, StringComparison.Ordinal));
+                var diagnostics = GatewayDiagnostics.ClassifyDevice(
+                    new Device(
+                        "device-local",
+                        current.DeviceName,
+                        "user-local",
+                        "New York",
+                        "United States",
+                        "203.0.113.10",
+                        Managed: true,
+                        Compliant: true,
+                        PostureScore: 96,
+                        simulatedState,
+                        sample.SampledAtUtc,
+                        RegistrationState: DeviceRegistrationState.Enrolled,
+                        EnrollmentKind: DeviceEnrollmentKind.ReEnrollment),
+                    sample,
+                    new TunnelSession(
+                        "session-local",
+                        "user-local",
+                        "device-local",
+                        placement.GatewayId,
+                        DateTimeOffset.UtcNow,
+                        8,
+                        sample.ThroughputMbps),
+                    activeGateway);
+
+                var nextTimeline = current.Timeline;
+                if (!string.Equals(current.CurrentGateway, placement.GatewayName, StringComparison.Ordinal))
+                {
+                    nextTimeline = AppendTimeline(nextTimeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Failed over to {placement.GatewayName} after {current.CurrentGateway} crossed gateway thresholds.");
+                }
+                else if (localNetworkPoor)
+                {
+                    nextTimeline = AppendTimeline(nextTimeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Local network warning detected before traffic reached the gateway.");
+                }
 
                 state.UpdateDiagnostics(current with
                 {
-                    State = nextState,
-                    UserMessage = nextState == ConnectionState.Healthy
-                        ? "Tunnel healthy with stable link metrics."
-                        : "Jitter is elevated. Calls and screen share may degrade.",
-                    LatencyMs = latency,
-                    JitterMs = jitter,
-                    SignalStrengthPercent = signal,
-                    ThroughputMbps = throughput
+                    CurrentGateway = placement.GatewayName,
+                    State = diagnostics.State.ToString(),
+                    DiagnosticScope = diagnostics.Scope.ToString(),
+                    UserMessage = diagnostics.Summary,
+                    DiagnosticDetail = diagnostics.Detail,
+                    FailoverGateways = failoverGateways,
+                    Timeline = nextTimeline,
+                    LatencyMs = sample.LatencyMs,
+                    JitterMs = sample.JitterMs,
+                    SignalStrengthPercent = sample.SignalStrengthPercent,
+                    ThroughputMbps = sample.ThroughputMbps
                 });
             }
 
@@ -38,5 +89,76 @@ public sealed class DiagnosticsSamplerWorker(
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         }
     }
-}
 
+    private HealthSample BuildSample(bool localNetworkPoor, bool primaryDegraded)
+    {
+        if (localNetworkPoor)
+        {
+            return new HealthSample(
+                Guid.NewGuid().ToString("n"),
+                "device-local",
+                ConnectionState.LocalNetworkPoor,
+                HealthSeverity.Yellow,
+                54,
+                22,
+                2.4m,
+                62,
+                49,
+                false,
+                false,
+                DateTimeOffset.UtcNow,
+                "Packet loss and weak signal indicate a local uplink issue.");
+        }
+
+        if (primaryDegraded)
+        {
+            return new HealthSample(
+                Guid.NewGuid().ToString("n"),
+                "device-local",
+                ConnectionState.GatewayDegraded,
+                HealthSeverity.Yellow,
+                81,
+                18,
+                0.4m,
+                118,
+                88,
+                true,
+                true,
+                DateTimeOffset.UtcNow,
+                "Gateway latency breached the failover threshold.");
+        }
+
+        return new HealthSample(
+            Guid.NewGuid().ToString("n"),
+            "device-local",
+            ConnectionState.Healthy,
+            HealthSeverity.Green,
+            18 + _random.Next(0, 10),
+            3 + _random.Next(0, 4),
+            0.1m,
+            145 + _random.Next(0, 45),
+            82 + _random.Next(0, 12),
+            true,
+            true,
+            DateTimeOffset.UtcNow,
+            "Tunnel healthy with stable link metrics.");
+    }
+
+    private static Gateway[] CreateGatewayFleet(bool primaryDegraded)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var primary = primaryDegraded
+            ? new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Red, 88, 152, 91, 86, 92, LastHeartbeatUtc: now)
+            : new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 34, 128, 41, 49, 20, LastHeartbeatUtc: now);
+        var secondary = primaryDegraded
+            ? new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Green, 39, 111, 37, 46, 24, LastHeartbeatUtc: now)
+            : new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Yellow, 62, 118, 58, 64, 39, LastHeartbeatUtc: now);
+        return [primary, secondary];
+    }
+
+    private static string[] AppendTimeline(IReadOnlyList<string> existing, string entry) =>
+        existing
+            .Concat([entry])
+            .TakeLast(5)
+            .ToArray();
+}

@@ -427,7 +427,8 @@ public sealed partial class PostgresStore :
             reader.GetInt32(6),
             reader.GetInt32(7),
             reader.GetInt32(8),
-            reader.GetString(9));
+            reader.GetString(9),
+            reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10));
 
     private static ConnectionState ParseConnectionState(string value) =>
         Enum.Parse<ConnectionState>(value, ignoreCase: true);

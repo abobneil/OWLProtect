@@ -16,6 +16,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "gateway" 
 app.MapGet("/diagnostics", (GatewayHeartbeatService service, GatewayTrustBundleStore trustBundleStore) => Results.Ok(new
 {
     heartbeat = service.LastHeartbeat,
+    scorecard = GatewayDiagnostics.ScoreGateway(service.LastHeartbeat),
     trustMaterial = trustBundleStore.Current?.Material
 }));
 
@@ -79,7 +80,7 @@ public sealed class GatewayHeartbeatService(
     private int _tick;
 
     public Gateway LastHeartbeat { get; private set; } =
-        new("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 20, 100, 20, 40, 15);
+        new("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 20, 100, 20, 40, 15, LastHeartbeatUtc: DateTimeOffset.UtcNow);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -120,7 +121,11 @@ public sealed class GatewayHeartbeatService(
     {
         var load = 25 + ((_tick * 7) % 55);
         var latency = 16 + ((_tick * 5) % 28);
-        var health = load > 75 || latency > 40 ? HealthSeverity.Yellow : HealthSeverity.Green;
+        var health = load > 85 || latency > 70
+            ? HealthSeverity.Red
+            : load > 75 || latency > 40
+                ? HealthSeverity.Yellow
+                : HealthSeverity.Green;
 
         return new Gateway(
             _gatewayId,
@@ -131,7 +136,8 @@ public sealed class GatewayHeartbeatService(
             120 + (_tick % 35),
             25 + (_tick % 40),
             45 + (_tick % 30),
-            latency);
+            latency,
+            LastHeartbeatUtc: DateTimeOffset.UtcNow);
     }
 
     private static bool ShouldRotate(MachineTrustMaterial material) =>

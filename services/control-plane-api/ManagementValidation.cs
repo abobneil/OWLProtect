@@ -234,7 +234,8 @@ internal static class ManagementValidation
             request.CpuPercent,
             request.MemoryPercent,
             request.LatencyMs,
-            request.TenantId!.Trim());
+            request.TenantId!.Trim(),
+            DateTimeOffset.UtcNow);
 
     public static PolicyRule ToPolicy(PolicyUpsertRequest request, string id) =>
         new(

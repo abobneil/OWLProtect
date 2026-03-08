@@ -138,7 +138,9 @@
 
 .panel__header,
 .metric-card__header,
-.alert-card__title {
+.alert-card__title,
+.diagnostic-card__header,
+.map-cluster__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -155,6 +157,11 @@
   border-radius: 18px;
   background: rgba(8, 7, 12, 0.65);
   border: 1px solid rgba(61, 51, 80, 0.9);
+}
+
+.metric-card--pool {
+  display: grid;
+  gap: 1rem;
 }
 
 .metric-grid {
@@ -178,41 +185,63 @@
     radial-gradient(circle at 65% 42%, rgba(95, 51, 163, 0.22), transparent 20%),
     linear-gradient(180deg, rgba(11, 18, 32, 0.85), rgba(31, 27, 39, 0.9));
   display: grid;
-  align-content: center;
   gap: 1rem;
   padding: 1.5rem;
 }
 
-.map-pin {
+.map-cluster {
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(8, 7, 12, 0.55);
+  border: 1px solid rgba(61, 51, 80, 0.8);
+}
+
+.map-cluster__header p {
+  margin-bottom: 0;
+}
+
+.map-cluster__stats,
+.signal-list,
+.stack-list {
   display: flex;
-  gap: 0.85rem;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
-.map-pin__dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-primary-strong);
-  box-shadow: 0 0 0 6px rgba(123, 75, 208, 0.16);
+.map-cluster__stats span {
+  font-size: 0.9rem;
+  color: var(--color-text);
 }
 
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
+.diagnostic-grid {
   margin-top: 1rem;
+  display: grid;
+  gap: 1rem;
 }
 
-.data-table th,
-.data-table td {
-  text-align: left;
-  padding: 0.9rem 0.75rem;
-  border-bottom: 1px solid rgba(61, 51, 80, 0.6);
+.diagnostic-card {
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(61, 51, 80, 0.8);
+  background: rgba(8, 7, 12, 0.55);
 }
 
-.data-table th {
+.stack-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stack-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.tag--subtle {
+  background: rgba(255, 255, 255, 0.06);
   color: var(--color-text-muted);
-  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .alerts {

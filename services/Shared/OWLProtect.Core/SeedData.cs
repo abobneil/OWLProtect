@@ -97,8 +97,8 @@ public static class SeedData
 
         var gateways = new[]
         {
-            new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 31, 124, 38, 54, 18, tenant.Id),
-            new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Yellow, 72, 140, 70, 68, 42, tenant.Id)
+            new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 31, 124, 38, 54, 18, tenant.Id, DateTimeOffset.Parse("2026-03-07T23:45:00Z")),
+            new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Yellow, 72, 140, 70, 68, 42, tenant.Id, DateTimeOffset.Parse("2026-03-07T23:44:42Z"))
         };
 
         var gatewayPools = new[]
