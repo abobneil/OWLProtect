@@ -21,6 +21,12 @@ services:
       dockerfile: services/control-plane-api/Dockerfile
     environment:
       ASPNETCORE_URLS: ${OWLP_CONTROL_PLANE_URLS:-http://+:5180}
+      Observability__ServiceNamespace: ${OWLP_OBSERVABILITY_SERVICE_NAMESPACE:-owlprotect}
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-}
+      Observability__OtlpProtocol: ${OWLP_OBSERVABILITY_OTLP_PROTOCOL:-grpc}
+      Observability__EnablePrometheusEndpoint: ${OWLP_OBSERVABILITY_ENABLE_PROMETHEUS_ENDPOINT:-true}
+      Observability__EnableRequestLogging: ${OWLP_OBSERVABILITY_ENABLE_REQUEST_LOGGING:-true}
+      Observability__RedactIpAddresses: ${OWLP_OBSERVABILITY_REDACT_IP_ADDRESSES:-true}
       Persistence__Provider: ${OWLP_PERSISTENCE_PROVIDER:-postgres}
       Persistence__ConnectionString: Host=postgres;Port=5432;Database=${OWLP_POSTGRES_DB:-owlprotect};Username=${OWLP_POSTGRES_USER:-owlprotect};Password=${OWLP_POSTGRES_PASSWORD:-owlprotect}
       Persistence__RedisConnectionString: ${OWLP_REDIS_CONNECTION_STRING:-redis:6379}
@@ -50,11 +56,20 @@ services:
       context: .
       dockerfile: services/gateway/Dockerfile
     environment:
+      ASPNETCORE_URLS: ${OWLP_GATEWAY_URLS:-http://+:5181}
+      Observability__ServiceNamespace: ${OWLP_OBSERVABILITY_SERVICE_NAMESPACE:-owlprotect}
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-}
+      Observability__OtlpProtocol: ${OWLP_OBSERVABILITY_OTLP_PROTOCOL:-grpc}
+      Observability__EnablePrometheusEndpoint: ${OWLP_OBSERVABILITY_ENABLE_PROMETHEUS_ENDPOINT:-true}
+      Observability__EnableRequestLogging: ${OWLP_OBSERVABILITY_ENABLE_REQUEST_LOGGING:-true}
+      Observability__RedactIpAddresses: ${OWLP_OBSERVABILITY_REDACT_IP_ADDRESSES:-true}
       ControlPlane__BaseUrl: ${OWLP_CONTROL_PLANE_BASE_URL:-http://control-plane-api:5180}
       Gateway__Id: ${OWLP_GATEWAY_ID:-gw-1}
       Gateway__Name: ${OWLP_GATEWAY_NAME:-us-east-core-1}
       Gateway__Region: ${OWLP_GATEWAY_REGION:-us-east}
       Gateway__TrustBundleFile: ${OWLP_GATEWAY_TRUST_BUNDLE_FILE:-/var/lib/owlprotect/gateway-trust-bundle.json}
+    ports:
+      - "${OWLP_GATEWAY_PORT:-5181}:5181"
     volumes:
       - "${OWLP_GATEWAY_STATE_PATH:-./.gateway-state}:/var/lib/owlprotect"
     depends_on:
@@ -65,7 +80,16 @@ services:
       context: .
       dockerfile: services/scheduler/Dockerfile
     environment:
+      ASPNETCORE_URLS: ${OWLP_SCHEDULER_URLS:-http://+:5182}
+      Observability__ServiceNamespace: ${OWLP_OBSERVABILITY_SERVICE_NAMESPACE:-owlprotect}
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-}
+      Observability__OtlpProtocol: ${OWLP_OBSERVABILITY_OTLP_PROTOCOL:-grpc}
+      Observability__EnablePrometheusEndpoint: ${OWLP_OBSERVABILITY_ENABLE_PROMETHEUS_ENDPOINT:-true}
+      Observability__EnableRequestLogging: ${OWLP_OBSERVABILITY_ENABLE_REQUEST_LOGGING:-true}
+      Observability__RedactIpAddresses: ${OWLP_OBSERVABILITY_REDACT_IP_ADDRESSES:-true}
       ControlPlane__BaseUrl: ${OWLP_CONTROL_PLANE_BASE_URL:-http://control-plane-api:5180}
+    ports:
+      - "${OWLP_SCHEDULER_PORT:-5182}:5182"
     depends_on:
       - control-plane-api
 

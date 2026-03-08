@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Http.HttpResults;
 using OWLProtect.Core;
 
@@ -53,6 +54,10 @@ internal static class ControlPlaneSecurity
         }
 
         httpContext.Items[IdentityItemKey] = new AuthenticatedRequestContext(session, admin, user);
+        var sessionCorrelationId = SensitiveDataRedactor.CreateSessionCorrelationId(session.Id);
+        httpContext.Items[OwlProtectTelemetry.SessionCorrelationItemKey] = sessionCorrelationId;
+        Activity.Current?.SetTag("owlprotect.session.correlation_id", sessionCorrelationId);
+        Activity.Current?.AddBaggage("owlprotect.session.correlation_id", sessionCorrelationId);
     }
 
     public static AuthenticatedRequestContext? GetIdentity(HttpContext httpContext) =>

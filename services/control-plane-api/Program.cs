@@ -1,15 +1,26 @@
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text.Json;
 using OWLProtect.ControlPlane.Api;
 using OWLProtect.Core;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddOwlProtectObservability(builder.Configuration, builder.Environment, "control-plane-api", includeAspNetCoreInstrumentation: true);
 builder.Services.AddSingleton<ControlPlaneEventStream>();
 builder.Services.AddSingleton<IControlPlaneEventPublisher>(serviceProvider => serviceProvider.GetRequiredService<ControlPlaneEventStream>());
+builder.Services.AddSingleton<AuditRetentionWorkerState>();
+builder.Services.AddSingleton<SessionRevalidationWorkerState>();
+builder.Services.AddSingleton<TestUserDisableWorkerState>();
 builder.Services.Configure<PersistenceOptions>(builder.Configuration.GetSection("Persistence"));
 builder.Services.Configure<SecretManagementOptions>(builder.Configuration.GetSection("SecretManagement"));
 builder.Services.Configure<AuditRetentionOptions>(builder.Configuration.GetSection("AuditRetention"));
 builder.Services.Configure<PlatformBootstrapOptions>(builder.Configuration.GetSection("Bootstrap"));
+builder.Services.AddHealthChecks()
+    .AddCheck<PersistenceHealthCheck>("persistence", tags: ["ready"])
+    .AddCheck<AuditExportDirectoryHealthCheck>("audit_export_directory", tags: ["ready"])
+    .AddCheck<AuditRetentionWorkerHealthCheck>("audit_retention_worker", tags: ["ready"])
+    .AddCheck<SessionRevalidationWorkerHealthCheck>("session_revalidation_worker", tags: ["ready"])
+    .AddCheck<TestUserDisableWorkerHealthCheck>("test_user_disable_worker", tags: ["ready"]);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -90,6 +101,7 @@ if (string.Equals(persistenceProvider, "postgres", StringComparison.OrdinalIgnor
     await app.Services.GetRequiredService<PostgresStore>().InitializeAsync(app.Lifetime.ApplicationStopping);
 }
 
+app.UseOwlProtectRequestCorrelation();
 app.UseCors();
 app.Use(async (context, next) =>
 {
@@ -97,8 +109,8 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseWebSockets();
+app.MapOwlProtectOperationalEndpoints();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 var api = app.MapGroup(ControlPlaneApiConventions.ApiPrefix);
 var webSocketApi = api.MapGroup("/ws");
 
@@ -110,10 +122,12 @@ api.MapPost("/auth/admin/login", (AdminLoginRequest request, IBootstrapService b
     {
         var admin = bootstrapService.LoginAdmin(request.Username, request.Password);
         var issuedSession = sessionStore.CreateSession(PlatformSessionKind.Admin, admin.Id, admin.Username, admin.Role.ToString());
+        RecordAuthAttempt("admin_login", "success");
         return Results.Ok(BuildAuthSessionResponse(issuedSession, admin, user: null));
     }
     catch (InvalidOperationException exception)
     {
+        RecordAuthAttempt("admin_login", "failure");
         auditWriter.WriteAudit(
             string.IsNullOrWhiteSpace(request.Username) ? "anonymous" : request.Username.Trim(),
             "admin-login",
@@ -131,10 +145,12 @@ api.MapPost("/auth/user/login", (UserLoginRequest request, IBootstrapService boo
     {
         var user = bootstrapService.LoginUser(request.Username);
         var issuedSession = sessionStore.CreateSession(PlatformSessionKind.User, user.Id, user.Username, role: null);
+        RecordAuthAttempt("test_user_login", "success");
         return Results.Ok(BuildAuthSessionResponse(issuedSession, admin: null, user));
     }
     catch (InvalidOperationException exception)
     {
+        RecordAuthAttempt("test_user_login", "failure");
         auditWriter.WriteAudit(
             string.IsNullOrWhiteSpace(request.Username) ? "anonymous" : request.Username.Trim(),
             "test-user-login",
@@ -157,6 +173,7 @@ api.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
 
         if (existingUser is not null && !existingUser.Enabled)
         {
+            RecordAuthAttempt("provider_login", "user_disabled", request.ProviderId);
             auditWriter.WriteAudit(result.Username, "provider-login", "user", existingUser.Id, "failure", $"External identity login was rejected because user '{existingUser.Id}' is disabled.");
             return Results.Json(new ApiErrorResponse("User is disabled.", "user_disabled"), statusCode: StatusCodes.Status403Forbidden);
         }
@@ -166,15 +183,18 @@ api.MapPost("/auth/provider/login", async (ProviderLoginRequest request, AuthPro
             $"idp:{request.ProviderId}:{result.Username}");
         var issuedSession = sessionStore.CreateSession(PlatformSessionKind.User, provisionedUser.Id, provisionedUser.Username, role: null);
         auditWriter.WriteAudit(result.Username, "provider-login", "user", provisionedUser.Id, "success", $"Validated provider '{request.ProviderId}' token and issued a platform session with {provisionedUser.GroupIds.Count} mapped groups.");
+        RecordAuthAttempt("provider_login", "success", request.ProviderId);
         return Results.Ok(BuildAuthSessionResponse(issuedSession, admin: null, provisionedUser));
     }
     catch (AuthProviderValidationException exception)
     {
+        RecordAuthAttempt("provider_login", exception.DiagnosticCode, request.ProviderId);
         auditWriter.WriteAudit(request.ProviderId, "provider-login", "auth-provider", request.ProviderId, "failure", $"[{exception.DiagnosticCode}] {exception.AuditDetail}");
         return Results.BadRequest(new { error = exception.SafeMessage, diagnosticCode = exception.DiagnosticCode });
     }
     catch (InvalidOperationException exception)
     {
+        RecordAuthAttempt("provider_login", "failure", request.ProviderId);
         auditWriter.WriteAudit(request.ProviderId, "provider-login", "auth-provider", request.ProviderId, "failure", exception.Message);
         return Results.BadRequest(new { error = exception.Message });
     }
@@ -185,10 +205,12 @@ api.MapPost("/auth/session/refresh", (RefreshSessionRequest request, IPlatformSe
     try
     {
         var issuedSession = sessionStore.Refresh(request.RefreshToken);
+        RecordAuthAttempt("session_refresh", "success");
         return Results.Ok(BuildAuthSessionResponseFromStore(issuedSession, adminRepository, userRepository));
     }
     catch (InvalidOperationException exception)
     {
+        RecordAuthAttempt("session_refresh", "failure");
         var sessionId = PlatformSessionTokenCodec.TryGetSessionId(request.RefreshToken);
         auditWriter.WriteAudit(
             "anonymous",
@@ -278,6 +300,11 @@ userSessionGroup.MapPost("/auth/client/devices/{deviceId}/posture", (HttpContext
             ? string.Join(", ", updatedDevice.ComplianceReasons)
             : "Device posture is compliant.",
         updatedDevice.TenantId));
+    OwlProtectTelemetry.DiagnosticsSamplesRecorded.Add(1, new TagList
+    {
+        { "source", "posture" },
+        { "tenant_id", updatedDevice.TenantId }
+    });
     revalidationService.RevalidateActiveSessions(identity.Actor, tenantId: updatedDevice.TenantId, deviceId: updatedDevice.Id);
     return Results.Ok(updatedDevice);
 });
@@ -307,6 +334,7 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
     }
 
     var issuedSession = sessionStore.CreateSession(PlatformSessionKind.Client, device.Id, device.Name, role: null);
+    RecordAuthAttempt("client_session_issue", "success");
     return Results.Ok(new ClientAuthSessionResponse(
         issuedSession.Session,
         new SessionTokenPair(
@@ -620,6 +648,28 @@ compliantAdminGroup.MapGet("/trust-material/query", (IMachineTrustRepository tru
 });
 compliantAdminGroup.MapGet("/audit", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditEvents()));
 compliantAdminGroup.MapGet("/audit/checkpoints", (IAuditRepository auditRepository) => Results.Ok(auditRepository.ListAuditRetentionCheckpoints()));
+compliantAdminGroup.MapGet("/operations/diagnostics", (AuditRetentionWorkerState auditRetentionState, SessionRevalidationWorkerState sessionRevalidationState, TestUserDisableWorkerState testUserDisableState) => Results.Ok(new
+{
+    persistenceProvider,
+    health = new
+    {
+        live = "/health/live",
+        ready = "/health/ready"
+    },
+    metrics = "/metrics",
+    workers = new[]
+    {
+        auditRetentionState.Snapshot(),
+        sessionRevalidationState.Snapshot(),
+        testUserDisableState.Snapshot()
+    },
+    redaction = new
+    {
+        tokens = "[redacted]",
+        credentials = "[redacted]",
+        ipAddresses = "[redacted-ip]"
+    }
+}));
 compliantAdminGroup.MapGet("/audit/export", (IAuditRepository auditRepository, DateTimeOffset? before, int? limit) =>
 {
     var boundedLimit = Math.Clamp(limit ?? 1000, 1, 10_000);
@@ -1134,6 +1184,9 @@ static void MapEventStream<TService, TPayload>(
 {
     routes.Map(path, async (HttpContext context, TService service, ControlPlaneEventStream eventStream) =>
     {
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("controlplane.event_stream.subscribe");
+        activity?.SetTag("owlprotect.stream.topic", topic);
+
         var requirement = ControlPlaneAuthorizationPolicies.Admin(policyName, minimumRole, requireCompliantAdmin: true, requireStepUp: false);
         if (!ControlPlaneSecurity.TryAuthorize(context, requirement, out var failure))
         {
@@ -1169,64 +1222,72 @@ static void MapEventStream<TService, TPayload>(
         }
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        OwlProtectTelemetry.EventStreamConnections.Add(1, new TagList { { "topic", topic } });
         using var subscription = eventStream.Subscribe(topic);
-        var latestSequence = eventStream.GetLatestSequence(topic);
-        if (!afterSequence.HasValue || afterSequence.Value != latestSequence)
+        try
         {
-            await SendFrameAsync(
-                socket,
-                new ControlPlaneStreamFrame(
-                    "snapshot",
-                    topic,
-                    latestSequence,
-                    DateTimeOffset.UtcNow,
-                    afterSequence.HasValue ? "reset" : "initial",
-                    EntityId: null,
-                    payloadFactory(service)),
-                context.RequestAborted);
-        }
-
-        while (socket.State == WebSocketState.Open && !context.RequestAborted.IsCancellationRequested)
-        {
-            var waitToReadTask = subscription.Reader.WaitToReadAsync(context.RequestAborted).AsTask();
-            var keepAliveTask = Task.Delay(TimeSpan.FromSeconds(30), context.RequestAborted);
-            var completedTask = await Task.WhenAny(waitToReadTask, keepAliveTask);
-
-            if (completedTask == keepAliveTask)
+            var latestSequence = eventStream.GetLatestSequence(topic);
+            if (!afterSequence.HasValue || afterSequence.Value != latestSequence)
             {
                 await SendFrameAsync(
                     socket,
                     new ControlPlaneStreamFrame(
-                        "keepalive",
+                        "snapshot",
                         topic,
-                        eventStream.GetLatestSequence(topic),
+                        latestSequence,
                         DateTimeOffset.UtcNow,
-                        EventType: null,
+                        afterSequence.HasValue ? "reset" : "initial",
                         EntityId: null,
-                        Payload: null),
-                    context.RequestAborted);
-                continue;
-            }
-
-            if (!await waitToReadTask)
-            {
-                break;
-            }
-
-            while (subscription.Reader.TryRead(out var notification))
-            {
-                await SendFrameAsync(
-                    socket,
-                    new ControlPlaneStreamFrame(
-                        "event",
-                        topic,
-                        notification.Sequence,
-                        notification.OccurredAtUtc,
-                        notification.EventType,
-                        notification.EntityId,
                         payloadFactory(service)),
                     context.RequestAborted);
             }
+
+            while (socket.State == WebSocketState.Open && !context.RequestAborted.IsCancellationRequested)
+            {
+                var waitToReadTask = subscription.Reader.WaitToReadAsync(context.RequestAborted).AsTask();
+                var keepAliveTask = Task.Delay(TimeSpan.FromSeconds(30), context.RequestAborted);
+                var completedTask = await Task.WhenAny(waitToReadTask, keepAliveTask);
+
+                if (completedTask == keepAliveTask)
+                {
+                    await SendFrameAsync(
+                        socket,
+                        new ControlPlaneStreamFrame(
+                            "keepalive",
+                            topic,
+                            eventStream.GetLatestSequence(topic),
+                            DateTimeOffset.UtcNow,
+                            EventType: null,
+                            EntityId: null,
+                            Payload: null),
+                        context.RequestAborted);
+                    continue;
+                }
+
+                if (!await waitToReadTask)
+                {
+                    break;
+                }
+
+                while (subscription.Reader.TryRead(out var notification))
+                {
+                    await SendFrameAsync(
+                        socket,
+                        new ControlPlaneStreamFrame(
+                            "event",
+                            topic,
+                            notification.Sequence,
+                            notification.OccurredAtUtc,
+                            notification.EventType,
+                            notification.EntityId,
+                            payloadFactory(service)),
+                        context.RequestAborted);
+                }
+            }
+        }
+        finally
+        {
+            OwlProtectTelemetry.EventStreamConnections.Add(-1, new TagList { { "topic", topic } });
         }
     });
 }
@@ -1235,4 +1296,19 @@ static async Task SendFrameAsync(WebSocket socket, ControlPlaneStreamFrame frame
 {
     var payload = JsonSerializer.SerializeToUtf8Bytes(frame);
     await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+}
+
+static void RecordAuthAttempt(string flow, string outcome, string? providerId = null)
+{
+    var tags = new TagList
+    {
+        { "flow", flow },
+        { "outcome", outcome }
+    };
+    if (!string.IsNullOrWhiteSpace(providerId))
+    {
+        tags.Add("provider_id", providerId);
+    }
+
+    OwlProtectTelemetry.AuthAttempts.Add(1, tags);
 }

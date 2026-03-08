@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using OWLProtect.Core;
 
 namespace OWLProtect.ControlPlane.Api;
@@ -19,6 +20,11 @@ internal sealed class InMemoryPlatformSessionStore(IAuditWriter auditWriter) : I
                 PlatformSessionTokenCodec.HashToken(issuedSession.RefreshToken),
                 issuedSession.Session);
 
+            OwlProtectTelemetry.SessionsIssued.Add(1, new TagList
+            {
+                { "kind", kind.ToString() },
+                { "store", "in-memory" }
+            });
             auditWriter.WriteAudit(subjectName, "platform-session-issued", "platform-session", issuedSession.Session.Id, "success", $"Issued {kind} session.");
             return issuedSession;
         }

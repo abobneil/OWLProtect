@@ -1,8 +1,15 @@
+using System.Diagnostics;
 using System.Text.Json;
 using OWLProtect.Core;
+using OWLProtect.Gateway;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddOwlProtectObservability(builder.Configuration, builder.Environment, "gateway", includeAspNetCoreInstrumentation: true);
+builder.Services.AddSingleton<GatewayHeartbeatState>();
+builder.Services.AddHealthChecks()
+    .AddCheck<GatewayTrustBundleHealthCheck>("trust_bundle", tags: ["ready"])
+    .AddCheck<GatewayHeartbeatHealthCheck>("heartbeat_publisher", tags: ["ready"]);
 builder.Services.AddHttpClient<GatewayControlPlaneClient>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["ControlPlane:BaseUrl"] ?? "http://localhost:5180");
@@ -12,12 +19,15 @@ builder.Services.AddHostedService<GatewayHeartbeatService>();
 
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "gateway" }));
-app.MapGet("/diagnostics", (GatewayHeartbeatService service, GatewayTrustBundleStore trustBundleStore) => Results.Ok(new
+app.UseOwlProtectRequestCorrelation();
+app.MapOwlProtectOperationalEndpoints();
+app.MapGet("/diagnostics", (GatewayHeartbeatService service, GatewayTrustBundleStore trustBundleStore, GatewayHeartbeatState heartbeatState) => Results.Ok(new
 {
     heartbeat = service.LastHeartbeat,
+    heartbeatPublisher = heartbeatState.Snapshot(),
     scorecard = GatewayDiagnostics.ScoreGateway(service.LastHeartbeat),
-    trustMaterial = trustBundleStore.Current?.Material
+    trustMaterial = trustBundleStore.Current?.Material,
+    metrics = "/metrics"
 }));
 
 app.Run();
@@ -68,11 +78,12 @@ public sealed class GatewayControlPlaneClient(HttpClient httpClient)
     }
 }
 
-public sealed class GatewayHeartbeatService(
+internal sealed class GatewayHeartbeatService(
     ILogger<GatewayHeartbeatService> logger,
     IConfiguration configuration,
     GatewayControlPlaneClient client,
-    GatewayTrustBundleStore trustBundleStore) : BackgroundService
+    GatewayTrustBundleStore trustBundleStore,
+    GatewayHeartbeatState heartbeatState) : BackgroundService
 {
     private readonly string _gatewayId = configuration["Gateway:Id"] ?? "gw-1";
     private readonly string _gatewayName = configuration["Gateway:Name"] ?? "us-east-core-1";
@@ -88,10 +99,22 @@ public sealed class GatewayHeartbeatService(
         {
             _tick++;
             LastHeartbeat = BuildHeartbeat();
+            var startedAtUtc = DateTimeOffset.UtcNow;
+            var start = Stopwatch.GetTimestamp();
+            heartbeatState.RecordStart(startedAtUtc);
+
+            using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("gateway.publish_heartbeat");
+            activity?.SetTag("owlprotect.gateway.id", _gatewayId);
+            activity?.SetTag("owlprotect.gateway.region", _region);
+
+            var outcome = "success";
             var trustBundle = trustBundleStore.Current;
             if (trustBundle is null)
             {
+                outcome = "missing_trust_bundle";
+                heartbeatState.RecordFailure(DateTimeOffset.UtcNow, Stopwatch.GetElapsedTime(start), "Gateway trust bundle is not loaded.");
                 logger.LogWarning("Skipping gateway heartbeat because no trust bundle is loaded. Configure Gateway:TrustBundleFile with issued trust material for gateway {GatewayId}.", _gatewayId);
+                OwlProtectTelemetry.GatewayHeartbeatPublishes.Add(1, new TagList { { "outcome", outcome } });
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
                 continue;
             }
@@ -107,10 +130,25 @@ public sealed class GatewayHeartbeatService(
                 }
 
                 await client.PublishHeartbeatAsync(LastHeartbeat, trustBundle, stoppingToken);
+                heartbeatState.RecordSuccess(
+                    DateTimeOffset.UtcNow,
+                    Stopwatch.GetElapsedTime(start),
+                    $"Published heartbeat for gateway {_gatewayId}.",
+                    affectedItemCount: 1);
             }
             catch (Exception exception)
             {
+                outcome = "failure";
+                activity?.SetStatus(ActivityStatusCode.Error);
+                heartbeatState.RecordFailure(DateTimeOffset.UtcNow, Stopwatch.GetElapsedTime(start), exception.Message);
                 logger.LogWarning(exception, "Failed to publish gateway heartbeat.");
+            }
+            finally
+            {
+                var durationMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+                activity?.SetTag("owlprotect.gateway.heartbeat.outcome", outcome);
+                OwlProtectTelemetry.GatewayHeartbeatPublishes.Add(1, new TagList { { "outcome", outcome } });
+                OwlProtectTelemetry.GatewayHeartbeatPublishDuration.Record(durationMs, new TagList { { "outcome", outcome } });
             }
 
             await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);

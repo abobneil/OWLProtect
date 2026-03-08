@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -85,6 +86,11 @@ internal sealed class PostgresPlatformSessionStore : IPlatformSessionStore, IDis
         command.ExecuteNonQuery();
 
         CacheStoredSession(new StoredPlatformSession(accessTokenHash, refreshTokenHash, session));
+        OwlProtectTelemetry.SessionsIssued.Add(1, new TagList
+        {
+            { "kind", kind.ToString() },
+            { "store", "postgres" }
+        });
         _auditWriter.WriteAudit(subjectName, "platform-session-issued", "platform-session", sessionId, "success", $"Issued {kind} session.");
         return new IssuedPlatformSession(session, accessToken, refreshToken);
     }

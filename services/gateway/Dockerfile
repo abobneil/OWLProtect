@@ -7,5 +7,5 @@ RUN dotnet publish services/gateway/OWLProtect.Gateway.csproj -c Release -o /app
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY --from=build /app/out .
+EXPOSE 5181
 ENTRYPOINT ["dotnet", "OWLProtect.Gateway.dll"]
-

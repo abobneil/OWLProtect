@@ -28,6 +28,12 @@ See [docs/security/secret-management-and-rotation.md](docs/security/secret-manag
 
 See [docs/security/audit-retention-and-export.md](docs/security/audit-retention-and-export.md) for the current audit durability, retention, and export guidance.
 
+See [docs/operations/observability-and-slos.md](docs/operations/observability-and-slos.md) for service health endpoints, metrics, traces, alert rules, redaction policy, dashboards, SLOs, and performance baselines.
+
+See [docs/operations/backup-restore-and-upgrades.md](docs/operations/backup-restore-and-upgrades.md) for the supported backup, restore, migration, and upgrade validation workflows.
+
+See [docs/operations/self-hosted-runbooks.md](docs/operations/self-hosted-runbooks.md) for self-hosted deployment promotion, incident response, and support escalation runbooks.
+
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the current service-boundary overview and [docs/adr](docs/adr) for the accepted architecture decisions.
 
 See [docs/windows/windows-client.md](docs/windows/windows-client.md) for the current Windows client IPC, auth configuration, posture collection, and offline recovery behavior.

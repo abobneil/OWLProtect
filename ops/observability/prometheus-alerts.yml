@@ -1,0 +1,50 @@
+groups:
+  - name: owlprotect-observability
+    rules:
+      - alert: OWLProtectControlPlaneAuthFailuresBurst
+        expr: sum(increase(owlprotect_auth_attempts_total{flow=~"admin_login|provider_login|session_refresh",outcome!="success"}[5m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          service: control-plane-api
+        annotations:
+          summary: Control-plane authentication failures are rising.
+          description: Investigate identity-provider health, bootstrap-admin lockouts, or token replay attempts.
+
+      - alert: OWLProtectGatewayHeartbeatMissing
+        expr: increase(owlprotect_gateway_heartbeats_total{outcome="success"}[2m]) < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: gateway
+        annotations:
+          summary: Gateway heartbeats have stopped.
+          description: The active gateway has not published a successful heartbeat for at least two minutes.
+
+      - alert: OWLProtectEventStreamDropped
+        expr: max_over_time(owlprotect_eventstream_connections[15m]) > 0 and avg_over_time(owlprotect_eventstream_connections[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: control-plane-api
+        annotations:
+          summary: Operator event streams dropped to zero.
+          description: Check websocket connectivity, reverse-proxy upgrades, and admin-portal reconnect behavior.
+
+      - alert: OWLProtectServiceUnready
+        expr: up{job=~"owlprotect-control-plane|owlprotect-gateway|owlprotect-scheduler"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: An OWLProtect service is unreachable.
+          description: The Prometheus target cannot scrape one of the OWLProtect health or metrics endpoints.
+
+      - alert: OWLProtectStoragePressure
+        expr: (node_filesystem_avail_bytes{mountpoint=~"/var/lib/owlprotect|/var/lib/postgresql/data"} / node_filesystem_size_bytes{mountpoint=~"/var/lib/owlprotect|/var/lib/postgresql/data"}) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: OWLProtect persistent storage is below 15 percent free.
+          description: Audit exports, gateway state, or PostgreSQL storage is approaching capacity.
