@@ -61,6 +61,7 @@ There are two configuration layers in this repository:
 | `OWLP_GATEWAY_ID` | `Gateway__Id` | `gateway` |
 | `OWLP_GATEWAY_NAME` | `Gateway__Name` | `gateway` |
 | `OWLP_GATEWAY_REGION` | `Gateway__Region` | `gateway` |
+| `OWLP_ADMIN_PORTAL_CONTROL_PLANE_BASE_URL` | `VITE_CONTROL_PLANE_BASE_URL` | `admin-portal` |
 
 `OWLP_SECRET_MOUNT_PATH` is a deployment-only Docker Compose input used to mount file-backed secrets into `/run/owlprotect-secrets`.
 
