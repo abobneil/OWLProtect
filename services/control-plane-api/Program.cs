@@ -25,6 +25,7 @@ builder.Services.AddHealthChecks()
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, OwlProtectJsonContext.Default);
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 
 builder.Services.AddCors(options =>

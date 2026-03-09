@@ -24,14 +24,15 @@ Promotion stages:
 2. Review changed environment inputs and secrets.
 3. Run `./scripts/backup-selfhosted.ps1`.
 4. Run `./scripts/validate-upgrade.ps1`.
-5. Verify:
+5. Review the current [release checklist](/C:/Users/nchester/Documents/GitHub/OWLProtect/docs/operations/release-checklist.md) and attach the latest recovery-rehearsal evidence for the candidate.
+6. Verify:
    - control plane `/health/ready`
    - gateway `/health/ready`
    - scheduler `/health/ready`
    - control plane `/api/v1/operations/diagnostics`
    - gateway `/diagnostics`
    - scheduler `/diagnostics`
-6. Confirm Prometheus is scraping all `/metrics` endpoints.
+7. Confirm Prometheus is scraping all `/metrics` endpoints.
 
 ## Common Incidents
 

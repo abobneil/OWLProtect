@@ -6,4 +6,6 @@ public sealed class PersistenceOptions
     public string? ConnectionString { get; set; }
     public string? RedisConnectionString { get; set; }
     public bool SeedOnStartup { get; set; } = true;
+    public int StartupRetryCount { get; set; } = 15;
+    public int StartupRetryDelaySeconds { get; set; } = 2;
 }

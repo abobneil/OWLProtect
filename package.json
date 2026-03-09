@@ -10,8 +10,14 @@
     "build": "npm run build --workspaces --if-present",
     "dev:admin": "npm run dev --workspace @owlprotect/admin-portal",
     "lint": "npm run lint --workspaces --if-present",
+    "package:containers": "node ./scripts/run-powershell.mjs ./scripts/package-containers.ps1",
+    "package:windows": "node ./scripts/run-powershell.mjs ./scripts/package-windows-client.ps1",
+    "rehearse:recovery": "node ./scripts/run-powershell.mjs ./scripts/rehearse-recovery.ps1",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "validate:foundation": "node ./scripts/validate-foundation.mjs"
+    "validate:foundation": "node ./scripts/validate-foundation.mjs",
+    "validate:release-smoke": "node ./scripts/release-smoke.mjs",
+    "validate:security": "node ./scripts/run-powershell.mjs ./scripts/check-dependencies.ps1",
+    "validate:services": "node ./scripts/run-powershell.mjs ./scripts/build-services.ps1"
   }
 }

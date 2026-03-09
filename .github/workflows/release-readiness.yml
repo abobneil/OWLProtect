@@ -1,0 +1,199 @@
+name: Release Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: release-readiness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Services And Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Type-check workspaces
+        run: npm run typecheck
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Validate foundation conventions
+        run: npm run validate:foundation
+
+      - name: Build service projects
+        run: npm run validate:services
+
+      - name: Dependency vulnerability scan
+        run: npm run validate:security
+
+      - name: Filesystem supply-chain scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  integration:
+    name: Upgrade Validation And Smoke Tests
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate compose upgrade path
+        run: pwsh -File ./scripts/validate-upgrade.ps1 -EnvFile ./.env.local.example -TakeBackup:$false
+
+      - name: Run release readiness smoke suite
+        env:
+          OWLP_RELEASE_SMOKE_ADMIN_PASSWORD: change-local-bootstrap-admin-password
+        run: npm run validate:release-smoke
+
+      - name: Tear down integration stack
+        if: always()
+        run: docker compose --env-file ./.env.local.example -f docker-compose.yml down -v
+
+  package-containers:
+    name: Package Containers
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build container bundles
+        run: pwsh -File ./scripts/package-containers.ps1
+
+      - name: Upload container bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-containers
+          path: artifacts/containers
+
+  package-windows-client:
+    name: Package Windows Client
+    runs-on: windows-latest
+    needs: validate
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build Windows client bundle
+        run: pwsh -File ./scripts/package-windows-client.ps1
+
+      - name: Upload Windows client bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-client
+          path: artifacts/windows-client
+
+  provenance:
+    name: Generate SBOM And Sign Release Manifest
+    runs-on: ubuntu-latest
+    needs:
+      - package-containers
+      - package-windows-client
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download container bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: release-containers
+          path: artifacts/containers
+
+      - name: Download Windows client bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-client
+          path: artifacts/windows-client
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate container SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/sbom
+          for archive in artifacts/containers/*.tar; do
+            name="$(basename "${archive%.tar}")"
+            syft "oci-archive:${archive}" -o cyclonedx-json="artifacts/sbom/${name}.cdx.json"
+          done
+
+      - name: Generate Windows bundle SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          syft dir:artifacts/windows-client/bundle -o cyclonedx-json=artifacts/sbom/windows-client-bundle.cdx.json
+
+      - name: Build release checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          {
+            sha256sum artifacts/containers/*.tar
+            sha256sum artifacts/windows-client/*.zip
+            sha256sum artifacts/sbom/*.json
+          } > artifacts/release/SHA256SUMS
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release checksum manifest
+        if: github.event_name != 'pull_request'
+        run: |
+          cosign sign-blob --yes \
+            --output-signature artifacts/release/SHA256SUMS.sig \
+            --output-certificate artifacts/release/SHA256SUMS.pem \
+            artifacts/release/SHA256SUMS
+
+      - name: Upload provenance bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-provenance
+          path: |
+            artifacts/sbom
+            artifacts/release

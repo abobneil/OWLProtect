@@ -61,6 +61,26 @@ Example:
 ./scripts/validate-upgrade.ps1 -EnvFile .env
 ```
 
+## Recovery Rehearsal Workflow
+
+Use [scripts/rehearse-recovery.ps1](/C:/Users/nchester/Documents/GitHub/OWLProtect/scripts/rehearse-recovery.ps1).
+
+The recovery rehearsal script:
+
+- starts the compose stack with the selected env file
+- captures a backup archive
+- mutates bootstrap-admin and seeded-user state after the backup
+- writes filesystem markers into the audit-export and gateway-state paths
+- restores from the backup archive
+- verifies the original admin credentials and disabled test-user state were restored
+- writes `recovery-rehearsal-report.json` with the evidence bundle
+
+Example:
+
+```powershell
+./scripts/rehearse-recovery.ps1 -EnvFile .env.local.example
+```
+
 ## Rollback and Forward Fix
 
 - Always take a fresh backup immediately before a production-like upgrade.

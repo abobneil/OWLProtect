@@ -62,7 +62,7 @@ $workingPath = $resolvedBackupPath
 if ($resolvedBackupPath.EndsWith(".zip", [System.StringComparison]::OrdinalIgnoreCase)) {
     $workingPath = Join-Path ([System.IO.Path]::GetTempPath()) ("owlprotect-restore-" + [guid]::NewGuid().ToString("n"))
     Expand-Archive -Path $resolvedBackupPath -DestinationPath $workingPath -Force
-    $childItems = Get-ChildItem $workingPath
+    $childItems = @(Get-ChildItem $workingPath)
     if ($childItems.Count -eq 1 -and $childItems[0].PSIsContainer) {
         $workingPath = $childItems[0].FullName
     }

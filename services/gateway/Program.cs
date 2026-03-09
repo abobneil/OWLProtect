@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using OWLProtect.Core;
 using OWLProtect.Gateway;
 
@@ -15,13 +16,14 @@ builder.Services.AddHttpClient<GatewayControlPlaneClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["ControlPlane:BaseUrl"] ?? "http://localhost:5180");
 });
 builder.Services.AddSingleton<GatewayTrustBundleStore>();
-builder.Services.AddHostedService<GatewayHeartbeatService>();
+builder.Services.AddSingleton<GatewayHeartbeatService>();
+builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<GatewayHeartbeatService>());
 
 var app = builder.Build();
 
 app.UseOwlProtectRequestCorrelation();
 app.MapOwlProtectOperationalEndpoints();
-app.MapGet("/diagnostics", (GatewayHeartbeatService service, GatewayTrustBundleStore trustBundleStore, GatewayHeartbeatState heartbeatState) => Results.Ok(new
+app.MapGet("/diagnostics", ([FromServices] GatewayHeartbeatService service, GatewayTrustBundleStore trustBundleStore, GatewayHeartbeatState heartbeatState) => Results.Ok(new
 {
     heartbeat = service.LastHeartbeat,
     heartbeatPublisher = heartbeatState.Snapshot(),
@@ -188,6 +190,7 @@ public sealed class GatewayTrustBundleStore(IConfiguration configuration, ILogge
     private readonly Lock _gate = new();
     private IssuedMachineTrustMaterial? _current;
     private bool _loaded;
+    private DateTimeOffset? _loadedFileTimestampUtc;
 
     public IssuedMachineTrustMaterial? Current
     {
@@ -195,10 +198,17 @@ public sealed class GatewayTrustBundleStore(IConfiguration configuration, ILogge
         {
             lock (_gate)
             {
-                if (!_loaded)
+                var currentFileTimestampUtc = GetCurrentFileTimestampUtc();
+                var shouldReload =
+                    !_loaded ||
+                    _current is null ||
+                    (currentFileTimestampUtc is not null && currentFileTimestampUtc != _loadedFileTimestampUtc);
+
+                if (shouldReload)
                 {
                     _current = LoadFromDisk();
-                    _loaded = true;
+                    _loaded = _current is not null;
+                    _loadedFileTimestampUtc = currentFileTimestampUtc;
                 }
 
                 return _current;
@@ -226,7 +236,18 @@ public sealed class GatewayTrustBundleStore(IConfiguration configuration, ILogge
         {
             _current = trustBundle;
             _loaded = true;
+            _loadedFileTimestampUtc = GetCurrentFileTimestampUtc();
         }
+    }
+
+    private DateTimeOffset? GetCurrentFileTimestampUtc()
+    {
+        if (string.IsNullOrWhiteSpace(_bundlePath) || !File.Exists(_bundlePath))
+        {
+            return null;
+        }
+
+        return File.GetLastWriteTimeUtc(_bundlePath);
     }
 
     private IssuedMachineTrustMaterial? LoadFromDisk()
@@ -244,7 +265,14 @@ public sealed class GatewayTrustBundleStore(IConfiguration configuration, ILogge
         }
 
         var payload = File.ReadAllText(_bundlePath);
-        var trustBundle = JsonSerializer.Deserialize<IssuedMachineTrustMaterial>(payload);
+        var trustBundle = JsonSerializer.Deserialize<IssuedMachineTrustMaterial>(payload, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters =
+            {
+                new System.Text.Json.Serialization.JsonStringEnumConverter()
+            }
+        });
         if (trustBundle is null)
         {
             logger.LogWarning("Gateway trust bundle file '{TrustBundleFile}' could not be parsed.", _bundlePath);

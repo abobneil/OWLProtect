@@ -40,7 +40,7 @@ public sealed partial class PostgresStore
         using var connection = _dataSource.OpenConnection();
         using var command = new NpgsqlCommand(
             """
-            SELECT id, username, display_name, enabled, test_account, provider_type, group_ids, policy_ids, enabled_at_utc
+            SELECT id, username, display_name, enabled, test_account, provider_type, group_ids, policy_ids, tenant_id, enabled_at_utc
             FROM users
             WHERE lower(username) = lower(@username)
             LIMIT 1
