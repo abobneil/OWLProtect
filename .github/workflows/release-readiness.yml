@@ -116,6 +116,9 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      - name: Validate Windows client dependencies
+        run: pwsh -File ./scripts/check-dependencies.ps1 -ProjectSet windows -SkipNpmAudit
+
       - name: Build Windows client bundle
         run: pwsh -File ./scripts/package-windows-client.ps1
 
