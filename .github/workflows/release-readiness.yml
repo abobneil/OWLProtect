@@ -72,7 +72,8 @@ jobs:
           node-version: 24
 
       - name: Validate compose upgrade path
-        run: pwsh -File ./scripts/validate-upgrade.ps1 -EnvFile ./.env.local.example -TakeBackup:$false
+        shell: pwsh
+        run: ./scripts/validate-upgrade.ps1 -EnvFile ./.env.local.example -TakeBackup:$false
 
       - name: Run release readiness smoke suite
         env:

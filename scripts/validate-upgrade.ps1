@@ -44,6 +44,19 @@ function Get-Setting($Settings, [string]$Name, [string]$DefaultValue = "") {
     return $DefaultValue
 }
 
+function Ensure-Directory([string]$PathValue, [string]$Description) {
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return
+    }
+
+    $resolvedPath = Resolve-InputPath $PathValue
+    if (Test-Path $resolvedPath -PathType Leaf) {
+        throw "$Description path resolves to a file: $resolvedPath"
+    }
+
+    $null = New-Item -ItemType Directory -Force -Path $resolvedPath
+}
+
 function Wait-ForEndpoint([string]$Name, [string]$Uri, [int]$TimeoutSeconds) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
@@ -81,6 +94,11 @@ $composeArgs = @("compose", "--env-file", $envPath, "-f", $composePath)
 if ($TakeBackup) {
     & (Join-Path $PSScriptRoot "backup-selfhosted.ps1") -EnvFile $EnvFile -ComposeFile $ComposeFile -OutputDirectory "./backups" -SkipArchive
 }
+
+# Pre-create bind mount targets so Docker doesn't create root-owned directories on Linux runners.
+Ensure-Directory (Get-Setting $settings "OWLP_SECRET_MOUNT_PATH" "./.secrets") "Secret mount"
+Ensure-Directory (Get-Setting $settings "OWLP_AUDIT_EXPORT_DIRECTORY" "./audit-exports") "Audit export"
+Ensure-Directory (Get-Setting $settings "OWLP_GATEWAY_STATE_PATH" "./.gateway-state") "Gateway state"
 
 docker @composeArgs up -d --build
 
