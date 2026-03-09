@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using OWLProtect.Core;
@@ -54,6 +55,31 @@ public sealed partial class PostgresStore :
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
+        var maxAttempts = Math.Max(1, _options.StartupRetryCount);
+        var retryDelay = TimeSpan.FromSeconds(Math.Max(1, _options.StartupRetryDelaySeconds));
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await InitializeCoreAsync(cancellationToken);
+                return;
+            }
+            catch (NpgsqlException exception) when (attempt < maxAttempts && IsTransientInitializationFailure(exception))
+            {
+                _logger.LogWarning(
+                    exception,
+                    "PostgreSQL initialization attempt {Attempt}/{MaxAttempts} failed. Retrying in {DelaySeconds} seconds.",
+                    attempt,
+                    maxAttempts,
+                    retryDelay.TotalSeconds);
+                await Task.Delay(retryDelay, cancellationToken);
+            }
+        }
+    }
+
+    private async Task InitializeCoreAsync(CancellationToken cancellationToken)
+    {
         var schemaPath = Path.Combine(AppContext.BaseDirectory, "sql", "001_initial_schema.sql");
         var schemaSql = await File.ReadAllTextAsync(schemaPath, cancellationToken);
 
@@ -69,6 +95,10 @@ public sealed partial class PostgresStore :
 
         await BackfillAuditChainAsync(cancellationToken);
     }
+
+    private static bool IsTransientInitializationFailure(NpgsqlException exception) =>
+        exception.InnerException is SocketException or TimeoutException ||
+        string.Equals(exception.SqlState, "57P03", StringComparison.Ordinal);
 
     public void Dispose() => _dataSource.Dispose();
 

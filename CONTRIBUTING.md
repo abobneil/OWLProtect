@@ -22,6 +22,15 @@ Use these baseline validation commands before opening a pull request:
 npm run typecheck
 npm run build
 npm run validate:foundation
+npm run validate:services
+```
+
+For release-readiness work or changes that affect deployment and operations, also run:
+
+```bash
+npm run validate:security
+pwsh -File ./scripts/validate-upgrade.ps1 -EnvFile ./.env.local.example -TakeBackup:$false
+npm run validate:release-smoke
 ```
 
 Build the container images affected by your change:
@@ -37,6 +46,13 @@ Bring up the local dependency stack when you need the API and infrastructure ser
 
 ```bash
 docker compose up --build
+```
+
+Package release artifacts with:
+
+```bash
+npm run package:containers
+npm run package:windows
 ```
 
 ## Change Scope

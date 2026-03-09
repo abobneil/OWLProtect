@@ -59,3 +59,14 @@ The client computes a posture score, derives compliance reasons, and surfaces bo
 ## Support Bundles
 
 `support-bundle` exports the current client status, posture snapshot, recovery state, and recent timeline to the configured support bundle directory as JSON.
+
+## Packaging
+
+Use [scripts/package-windows-client.ps1](/C:/Users/nchester/Documents/GitHub/OWLProtect/scripts/package-windows-client.ps1) to produce the standalone Windows client bundle for release candidates.
+
+The packaged bundle includes:
+
+- published service output
+- published WinUI client output
+- `windows/installer/install.ps1` for installation or in-place update
+- `windows/installer/uninstall.ps1` for removal

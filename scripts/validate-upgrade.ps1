@@ -62,6 +62,16 @@ function Wait-ForEndpoint([string]$Name, [string]$Uri, [int]$TimeoutSeconds) {
     throw "$Name did not become ready before timeout: $Uri"
 }
 
+function Test-Endpoint([string]$Uri) {
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 5
+        return $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
+    }
+    catch {
+        return $false
+    }
+}
+
 $repoRoot = Get-RepoRoot
 $envPath = Resolve-InputPath $EnvFile
 $composePath = Resolve-InputPath $ComposeFile
@@ -79,6 +89,9 @@ $gatewayPort = Get-Setting $settings "OWLP_GATEWAY_PORT" "5181"
 $schedulerPort = Get-Setting $settings "OWLP_SCHEDULER_PORT" "5182"
 
 Wait-ForEndpoint "control-plane health" "http://localhost:$controlPlanePort/health/ready" $MaxWaitSeconds
+if (-not (Test-Endpoint "http://localhost:$gatewayPort/health/ready")) {
+    & (Join-Path $PSScriptRoot "issue-gateway-trust-material.ps1") -EnvFile $EnvFile
+}
 Wait-ForEndpoint "gateway health" "http://localhost:$gatewayPort/health/ready" $MaxWaitSeconds
 Wait-ForEndpoint "scheduler health" "http://localhost:$schedulerPort/health/ready" $MaxWaitSeconds
 Wait-ForEndpoint "control-plane metrics" "http://localhost:$controlPlanePort/metrics" $MaxWaitSeconds

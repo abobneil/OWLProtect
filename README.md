@@ -34,6 +34,8 @@ See [docs/operations/backup-restore-and-upgrades.md](docs/operations/backup-rest
 
 See [docs/operations/self-hosted-runbooks.md](docs/operations/self-hosted-runbooks.md) for self-hosted deployment promotion, incident response, and support escalation runbooks.
 
+See [docs/operations/release-readiness.md](docs/operations/release-readiness.md) and [docs/operations/release-checklist.md](docs/operations/release-checklist.md) for release gates, packaging outputs, provenance verification, and ship-approval evidence.
+
 See [docs/architecture/overview.md](docs/architecture/overview.md) for the current service-boundary overview and [docs/adr](docs/adr) for the accepted architecture decisions.
 
 See [docs/windows/windows-client.md](docs/windows/windows-client.md) for the current Windows client IPC, auth configuration, posture collection, and offline recovery behavior.

@@ -58,6 +58,7 @@ internal sealed class TestUserDisableWorker(
             using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("scheduler.disable_test_user");
             var outcome = "success";
             var affectedUsers = 0;
+            var nextDelay = TimeSpan.FromHours(1);
 
             try
             {
@@ -71,6 +72,7 @@ internal sealed class TestUserDisableWorker(
             catch (Exception exception)
             {
                 outcome = "failure";
+                nextDelay = TimeSpan.FromSeconds(15);
                 activity?.SetStatus(ActivityStatusCode.Error);
                 cycleState.RecordFailure(DateTimeOffset.UtcNow, Stopwatch.GetElapsedTime(start), exception.Message);
                 logger.LogWarning(exception, "Scheduler cycle failed.");
@@ -82,7 +84,7 @@ internal sealed class TestUserDisableWorker(
                 OwlProtectTelemetry.SchedulerCycles.Add(1, new TagList { { "outcome", outcome } });
             }
 
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            await Task.Delay(nextDelay, stoppingToken);
         }
     }
 
