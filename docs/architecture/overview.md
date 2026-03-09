@@ -66,7 +66,7 @@ OWLProtect is a Windows-first enterprise VPN platform built as a monorepo with s
 ## Repo Mapping
 
 - `apps/admin-portal`: operator UI
-- `packages/contracts`: shared frontend transport contracts and seeded mock data
+- `packages/contracts`: shared frontend transport contracts and transport helpers
 - `packages/theme`: shared visual tokens
 - `services/control-plane-api`: HTTP and WebSocket control plane
 - `services/gateway`: edge gateway reporting and orchestration surface

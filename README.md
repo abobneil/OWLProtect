@@ -10,7 +10,7 @@ OWLProtect is a Windows-first enterprise VPN platform with:
 ## Workspace layout
 
 - `apps/admin-portal`: React admin portal
-- `packages/contracts`: shared TypeScript contracts and seeded mock data
+- `packages/contracts`: shared TypeScript contracts and transport helpers
 - `packages/theme`: shared design tokens and theme helpers
 - `services/control-plane-api`: ASP.NET Core control plane API
 - `services/gateway`: ASP.NET Core gateway service

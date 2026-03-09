@@ -1,14 +1,23 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 using OWLProtect.Core;
 
 namespace OWLProtect.WindowsClientService;
 
 public sealed class DiagnosticsSamplerWorker(
     ILogger<DiagnosticsSamplerWorker> logger,
-    ClientSessionState state) : BackgroundService
+    ClientSessionState state,
+    LocalPostureCollector postureCollector,
+    IOptions<WindowsClientOptions> options) : BackgroundService
 {
-    private readonly Random _random = new();
-    private int _tick;
-    private static readonly GatewayPool LocalPool = new("pool-local", "Local Client Pool", ["us-east"], ["gw-1", "gw-2"]);
+    private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMilliseconds(1500);
+    private const int ProbeAttempts = 3;
+    private ThroughputSnapshot? _throughputSnapshot;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -17,148 +26,348 @@ public sealed class DiagnosticsSamplerWorker(
             var current = state.GetStatus();
             if (current.Connected)
             {
-                _tick++;
-
-                var primaryDegraded = _tick % 4 == 0;
-                var localNetworkPoor = _tick % 6 == 0;
-                var gateways = CreateGatewayFleet(primaryDegraded);
-                var gatewayLookup = gateways.ToDictionary(gateway => gateway.Id, gateway => gateway.Name, StringComparer.Ordinal);
-                var placement = GatewayDiagnostics.SelectGatewayPlacement(SeedData.DefaultTenantId, gateways, [LocalPool])!;
-                var failoverGateways = placement.FailoverGatewayIds.Select(id => gatewayLookup.GetValueOrDefault(id, id)).ToArray();
-
-                var sample = BuildSample(localNetworkPoor, primaryDegraded);
-                var simulatedState = localNetworkPoor
-                    ? ConnectionState.LocalNetworkPoor
-                    : primaryDegraded
-                        ? ConnectionState.GatewayDegraded
-                        : ConnectionState.Healthy;
-                var activeGateway = gateways.Single(gateway => string.Equals(gateway.Id, placement.GatewayId, StringComparison.Ordinal));
-                var diagnostics = GatewayDiagnostics.ClassifyDevice(
-                    new Device(
-                        current.DeviceId,
-                        current.DeviceName,
-                        "user-local",
-                        "Unknown",
-                        "Unknown",
-                        "127.0.0.1",
-                        current.Posture.Managed,
-                        current.Posture.Compliant,
-                        current.Posture.PostureScore,
-                        simulatedState,
-                        sample.SampledAtUtc,
-                        RegistrationState: Enum.Parse<DeviceRegistrationState>(current.RegistrationState, ignoreCase: true),
-                        EnrollmentKind: Enum.Parse<DeviceEnrollmentKind>(current.EnrollmentKind, ignoreCase: true)),
-                    sample,
-                    new TunnelSession(
-                        "session-local",
-                        "user-local",
-                        current.DeviceId,
-                        placement.GatewayId,
-                        DateTimeOffset.UtcNow,
-                        8,
-                        sample.ThroughputMbps),
-                    activeGateway);
-
-                var nextTimeline = current.Timeline;
-                if (!string.Equals(current.CurrentGateway, placement.GatewayName, StringComparison.Ordinal))
+                try
                 {
-                    nextTimeline = AppendTimeline(nextTimeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Failed over to {placement.GatewayName} after {current.CurrentGateway} crossed gateway thresholds.");
+                    var nextStatus = await BuildUpdatedStatusAsync(current, stoppingToken);
+                    state.UpdateDiagnostics(nextStatus);
                 }
-                else if (localNetworkPoor)
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
-                    nextTimeline = AppendTimeline(nextTimeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Local network warning detected before traffic reached the gateway.");
+                    throw;
                 }
-
-                state.UpdateDiagnostics(current with
+                catch (Exception exception)
                 {
-                    CurrentGateway = placement.GatewayName,
-                    State = diagnostics.State.ToString(),
-                    DiagnosticScope = diagnostics.Scope.ToString(),
-                    UserMessage = diagnostics.Summary,
-                    DiagnosticDetail = diagnostics.Detail,
-                    FailoverGateways = failoverGateways,
-                    Timeline = nextTimeline,
-                    LatencyMs = sample.LatencyMs,
-                    JitterMs = sample.JitterMs,
-                    SignalStrengthPercent = sample.SignalStrengthPercent,
-                    ThroughputMbps = sample.ThroughputMbps
-                });
+                    logger.LogWarning(exception, "Client diagnostics sampling failed.");
+                }
             }
 
             logger.LogDebug("Client diagnostics sampled at {Time}.", DateTimeOffset.UtcNow);
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            await Task.Delay(SampleInterval, stoppingToken);
         }
     }
 
-    private HealthSample BuildSample(bool localNetworkPoor, bool primaryDegraded)
+    private async Task<ClientStatus> BuildUpdatedStatusAsync(ClientStatus current, CancellationToken cancellationToken)
     {
-        if (localNetworkPoor)
+        var posture = postureCollector.Collect(current.DeviceId).Status;
+        var measurement = await MeasureConnectivityAsync(cancellationToken);
+        var preserveRecoveryNarrative = !string.Equals(current.RecoveryState, "Connected", StringComparison.Ordinal);
+        var nextState = preserveRecoveryNarrative
+            ? ParseConnectionState(current.State)
+            : DetermineConnectionState(posture, measurement);
+        var sample = BuildHealthSample(current.DeviceId, nextState, measurement, posture);
+        var diagnostics = GatewayDiagnostics.ClassifyDevice(BuildDiagnosticDevice(current, nextState, posture, measurement.SampledAtUtc), sample, session: null, gateway: null);
+
+        var timeline = current.Timeline;
+        if (!string.Equals(current.State, nextState.ToString(), StringComparison.Ordinal))
         {
-            return new HealthSample(
-                Guid.NewGuid().ToString("n"),
-                "device-local",
-                ConnectionState.LocalNetworkPoor,
-                HealthSeverity.Yellow,
-                54,
-                22,
-                2.4m,
-                62,
-                49,
-                false,
-                false,
-                DateTimeOffset.UtcNow,
-                "Packet loss and weak signal indicate a local uplink issue.");
+            timeline = AppendTimeline(timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Diagnostics moved to {nextState} ({measurement.LatencyMs} ms latency, {measurement.JitterMs} ms jitter).");
         }
 
-        if (primaryDegraded)
+        return current with
         {
-            return new HealthSample(
-                Guid.NewGuid().ToString("n"),
-                "device-local",
-                ConnectionState.GatewayDegraded,
-                HealthSeverity.Yellow,
-                81,
-                18,
-                0.4m,
-                118,
-                88,
-                true,
-                true,
-                DateTimeOffset.UtcNow,
-                "Gateway latency breached the failover threshold.");
+            State = nextState.ToString(),
+            DiagnosticScope = preserveRecoveryNarrative ? current.DiagnosticScope : diagnostics.Scope.ToString(),
+            UserMessage = preserveRecoveryNarrative ? current.UserMessage : diagnostics.Summary,
+            DiagnosticDetail = preserveRecoveryNarrative ? current.DiagnosticDetail : diagnostics.Detail,
+            Timeline = timeline,
+            LatencyMs = measurement.LatencyMs,
+            JitterMs = measurement.JitterMs,
+            SignalStrengthPercent = measurement.SignalStrengthPercent,
+            ThroughputMbps = measurement.ThroughputMbps,
+            Posture = posture
+        };
+    }
+
+    private async Task<NetworkMeasurement> MeasureConnectivityAsync(CancellationToken cancellationToken)
+    {
+        var sampledAtUtc = DateTimeOffset.UtcNow;
+        var activeInterface = GetPrimaryInterface();
+        var throughputMbps = MeasureThroughputMbps(activeInterface, sampledAtUtc);
+        var signalStrengthPercent = TryReadWirelessSignalPercent() ?? (activeInterface is null ? 0 : 100);
+        var endpoint = TryResolveControlPlaneEndpoint();
+        if (endpoint is null)
+        {
+            return new NetworkMeasurement(sampledAtUtc, 0, 0, 100m, signalStrengthPercent, false, false, throughputMbps);
         }
 
-        return new HealthSample(
+        var dnsReachable = await TryResolveHostAsync(endpoint.Value.Host, cancellationToken);
+        var latencies = await ProbeTcpLatenciesAsync(endpoint.Value.Host, endpoint.Value.Port, cancellationToken);
+        var packetLossPercent = decimal.Round((ProbeAttempts - latencies.Count) * 100m / ProbeAttempts, 1);
+        var latencyMs = latencies.Count == 0 ? 0 : (int)Math.Round(latencies.Average());
+        var jitterMs = latencies.Count < 2
+            ? 0
+            : (int)Math.Round(latencies.Zip(latencies.Skip(1), (left, right) => Math.Abs(left - right)).Average());
+        var routeHealthy = latencies.Count > 0 && packetLossPercent < 50m;
+
+        return new NetworkMeasurement(
+            sampledAtUtc,
+            latencyMs,
+            jitterMs,
+            packetLossPercent,
+            signalStrengthPercent,
+            dnsReachable,
+            routeHealthy,
+            throughputMbps);
+    }
+
+    private async Task<List<int>> ProbeTcpLatenciesAsync(string host, int port, CancellationToken cancellationToken)
+    {
+        var latencies = new List<int>(ProbeAttempts);
+        for (var attempt = 0; attempt < ProbeAttempts; attempt++)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ProbeTimeout);
+
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                using var client = new TcpClient();
+                await client.ConnectAsync(host, port, timeout.Token);
+                latencies.Add((int)Math.Round(Stopwatch.GetElapsedTime(started).TotalMilliseconds));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (SocketException)
+            {
+            }
+
+            if (attempt < ProbeAttempts - 1)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+        }
+
+        return latencies;
+    }
+
+    private static async Task<bool> TryResolveHostAsync(string host, CancellationToken cancellationToken)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host, out _))
+        {
+            return true;
+        }
+
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            return addresses.Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private (string Host, int Port)? TryResolveControlPlaneEndpoint()
+    {
+        if (!Uri.TryCreate(options.Value.ControlPlaneBaseUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var port = uri.IsDefaultPort
+            ? string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ? 443 : 80
+            : uri.Port;
+        return (uri.Host, port);
+    }
+
+    private int MeasureThroughputMbps(NetworkInterface? activeInterface, DateTimeOffset observedAtUtc)
+    {
+        if (activeInterface is null)
+        {
+            _throughputSnapshot = null;
+            return 0;
+        }
+
+        long totalBytes;
+        try
+        {
+            var statistics = activeInterface.GetIPv4Statistics();
+            totalBytes = statistics.BytesReceived + statistics.BytesSent;
+        }
+        catch
+        {
+            _throughputSnapshot = null;
+            return 0;
+        }
+
+        var previous = _throughputSnapshot;
+        _throughputSnapshot = new ThroughputSnapshot(activeInterface.Id, totalBytes, observedAtUtc);
+
+        if (previous is null || !string.Equals(previous.InterfaceId, activeInterface.Id, StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        var elapsedSeconds = (observedAtUtc - previous.ObservedAtUtc).TotalSeconds;
+        if (elapsedSeconds <= 0)
+        {
+            return 0;
+        }
+
+        var deltaBytes = Math.Max(0, totalBytes - previous.TotalBytes);
+        return (int)Math.Round((deltaBytes * 8d) / (elapsedSeconds * 1_000_000d));
+    }
+
+    private static NetworkInterface? GetPrimaryInterface() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(candidate => candidate.OperationalStatus == OperationalStatus.Up)
+            .Where(candidate => candidate.NetworkInterfaceType is not NetworkInterfaceType.Loopback and not NetworkInterfaceType.Tunnel)
+            .OrderByDescending(candidate => candidate.GetIPProperties().GatewayAddresses.Count)
+            .ThenByDescending(candidate => candidate.Speed)
+            .FirstOrDefault();
+
+    private static int? TryReadWirelessSignalPercent()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = "wlan show interfaces",
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false
+            });
+            if (process is null)
+            {
+                return null;
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(1000);
+            var match = Regex.Match(output, @"^\s*Signal\s*:\s*(\d+)%\s*$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+            return match.Success && int.TryParse(match.Groups[1].Value, out var signal)
+                ? Math.Clamp(signal, 0, 100)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static ConnectionState DetermineConnectionState(ClientPostureStatus posture, NetworkMeasurement measurement)
+    {
+        if (!posture.Compliant)
+        {
+            return ConnectionState.PolicyBlocked;
+        }
+
+        if (!measurement.RouteHealthy)
+        {
+            return !measurement.DnsReachable || measurement.SignalStrengthPercent < 50
+                ? ConnectionState.LocalNetworkPoor
+                : ConnectionState.ServerUnavailable;
+        }
+
+        if (measurement.PacketLossPercent >= 10m || measurement.SignalStrengthPercent < 60)
+        {
+            return ConnectionState.LocalNetworkPoor;
+        }
+
+        if (measurement.ThroughputMbps > 0 && measurement.ThroughputMbps < 20)
+        {
+            return ConnectionState.LowBandwidth;
+        }
+
+        if (measurement.JitterMs >= 25)
+        {
+            return ConnectionState.HighJitter;
+        }
+
+        return ConnectionState.Healthy;
+    }
+
+    private static HealthSample BuildHealthSample(string deviceId, ConnectionState state, NetworkMeasurement measurement, ClientPostureStatus posture) =>
+        new(
             Guid.NewGuid().ToString("n"),
-            "device-local",
-            ConnectionState.Healthy,
-            HealthSeverity.Green,
-            18 + _random.Next(0, 10),
-            3 + _random.Next(0, 4),
-            0.1m,
-            145 + _random.Next(0, 45),
-            82 + _random.Next(0, 12),
-            true,
-            true,
-            DateTimeOffset.UtcNow,
-            "Tunnel healthy with stable link metrics.");
-    }
+            deviceId,
+            state,
+            InferSeverity(state, measurement),
+            measurement.LatencyMs,
+            measurement.JitterMs,
+            measurement.PacketLossPercent,
+            measurement.ThroughputMbps,
+            measurement.SignalStrengthPercent,
+            measurement.DnsReachable,
+            measurement.RouteHealthy,
+            measurement.SampledAtUtc,
+            BuildSampleMessage(state, measurement, posture));
 
-    private static Gateway[] CreateGatewayFleet(bool primaryDegraded)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var primary = primaryDegraded
-            ? new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Red, 88, 152, 91, 86, 92, LastHeartbeatUtc: now)
-            : new Gateway("gw-1", "us-east-core-1", "us-east", HealthSeverity.Green, 34, 128, 41, 49, 20, LastHeartbeatUtc: now);
-        var secondary = primaryDegraded
-            ? new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Green, 39, 111, 37, 46, 24, LastHeartbeatUtc: now)
-            : new Gateway("gw-2", "us-east-core-2", "us-east", HealthSeverity.Yellow, 62, 118, 58, 64, 39, LastHeartbeatUtc: now);
-        return [primary, secondary];
-    }
+    private static Device BuildDiagnosticDevice(ClientStatus current, ConnectionState state, ClientPostureStatus posture, DateTimeOffset sampledAtUtc) =>
+        new(
+            current.DeviceId,
+            current.DeviceName,
+            current.Username,
+            "Unknown",
+            "Unknown",
+            "0.0.0.0",
+            posture.Managed,
+            posture.Compliant,
+            posture.PostureScore,
+            state,
+            sampledAtUtc,
+            RegistrationState: ParseRegistrationState(current.RegistrationState),
+            EnrollmentKind: ParseEnrollmentKind(current.EnrollmentKind),
+            OperatingSystem: posture.OperatingSystem,
+            ComplianceReasons: posture.ComplianceReasons);
+
+    private static HealthSeverity InferSeverity(ConnectionState state, NetworkMeasurement measurement) =>
+        state switch
+        {
+            ConnectionState.Healthy => HealthSeverity.Green,
+            ConnectionState.PolicyBlocked or ConnectionState.AuthExpired or ConnectionState.ServerUnavailable => HealthSeverity.Red,
+            _ => measurement.PacketLossPercent >= 20m || measurement.SignalStrengthPercent < 50
+                ? HealthSeverity.Red
+                : HealthSeverity.Yellow
+        };
+
+    private static string BuildSampleMessage(ConnectionState state, NetworkMeasurement measurement, ClientPostureStatus posture) =>
+        state switch
+        {
+            ConnectionState.PolicyBlocked => $"Posture score {posture.PostureScore} is blocking enterprise routes.",
+            ConnectionState.LocalNetworkPoor => $"Local network quality is degraded with {measurement.PacketLossPercent:0.#}% packet loss and {measurement.SignalStrengthPercent}% signal strength.",
+            ConnectionState.LowBandwidth => $"Throughput dropped to {measurement.ThroughputMbps} Mbps across the active network path.",
+            ConnectionState.HighJitter => $"Latency variance reached {measurement.JitterMs} ms across repeated control-plane probes.",
+            ConnectionState.ServerUnavailable => "The configured control plane did not answer repeated network probes even though the local link is still up.",
+            _ => $"Stable network path detected with {measurement.LatencyMs} ms latency and {measurement.ThroughputMbps} Mbps throughput."
+        };
+
+    private static DeviceRegistrationState ParseRegistrationState(string value) =>
+        Enum.TryParse<DeviceRegistrationState>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : DeviceRegistrationState.Pending;
+
+    private static DeviceEnrollmentKind ParseEnrollmentKind(string value) =>
+        Enum.TryParse<DeviceEnrollmentKind>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : DeviceEnrollmentKind.Bootstrap;
+
+    private static ConnectionState ParseConnectionState(string value) =>
+        Enum.TryParse<ConnectionState>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : ConnectionState.ServerUnavailable;
 
     private static IReadOnlyList<string> AppendTimeline(IReadOnlyList<string> existing, string entry) =>
         existing
             .Concat([entry])
             .TakeLast(6)
             .ToArray();
+
+    private sealed record ThroughputSnapshot(
+        string InterfaceId,
+        long TotalBytes,
+        DateTimeOffset ObservedAtUtc);
+
+    private sealed record NetworkMeasurement(
+        DateTimeOffset SampledAtUtc,
+        int LatencyMs,
+        int JitterMs,
+        decimal PacketLossPercent,
+        int SignalStrengthPercent,
+        bool DnsReachable,
+        bool RouteHealthy,
+        int ThroughputMbps);
 }

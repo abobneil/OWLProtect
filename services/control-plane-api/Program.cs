@@ -984,12 +984,6 @@ privilegedAdminGroup.MapPost("/sessions/revalidate", (HttpContext context, Sessi
     var count = revalidationService.RevalidateActiveSessions(ControlPlaneSecurity.GetIdentity(context)!.Actor, tenantId, deviceId);
     return Results.Ok(new { revalidated = count, tenantId, deviceId });
 });
-privilegedAdminGroup.MapPost("/privileged/step-up", (HttpContext context, PrivilegedOperationRequest request) => Results.Ok(new
-{
-    actor = ControlPlaneSecurity.GetIdentity(context)!.Actor,
-    operation = request.OperationName,
-    status = "approved"
-}));
 privilegedAdminGroup.MapPost("/audit/retention/run", async (AuditRetentionService auditRetentionService, CancellationToken cancellationToken) =>
 {
     var result = await auditRetentionService.RunRetentionAsync(cancellationToken);

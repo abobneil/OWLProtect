@@ -70,7 +70,7 @@ public sealed partial class PostgresStore
         }
 
         await transaction.CommitAsync(cancellationToken);
-        _logger.LogInformation("Seeded PostgreSQL persistence store with scaffold data.");
+        _logger.LogInformation("Seeded PostgreSQL persistence store with bootstrap data.");
     }
 
     private static async Task InsertAdminAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, AdminAccount admin, CancellationToken cancellationToken)

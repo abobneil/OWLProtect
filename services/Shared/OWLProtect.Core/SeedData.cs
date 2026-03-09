@@ -166,33 +166,7 @@ public static class SeedData
             new Alert("alert-2", HealthSeverity.Yellow, "Gateway load rising", "Gateway us-east-core-2 is above the yellow load threshold.", "gateway", "gw-2", DateTimeOffset.Parse("2026-03-07T23:39:00Z"), tenant.Id)
         };
 
-        var authProviders = new[]
-        {
-            new AuthProviderConfig(
-                "auth-1",
-                "Microsoft Entra ID",
-                "entra",
-                "https://login.microsoftonline.com/example/v2.0",
-                "entra-client-id",
-                ["preferred_username", "upn", "email", "sub"],
-                ["groups"],
-                ["amr", "acr"],
-                RequireMfa: true,
-                SilentSsoEnabled: true,
-                TenantId: tenant.Id),
-            new AuthProviderConfig(
-                "auth-2",
-                "Generic OIDC",
-                "oidc",
-                "https://identity.example.com",
-                "oidc-client-id",
-                ["preferred_username", "email", "sub"],
-                ["groups"],
-                ["amr"],
-                RequireMfa: true,
-                SilentSsoEnabled: false,
-                TenantId: tenant.Id)
-        };
+        AuthProviderConfig[] authProviders = [];
 
         var auditEvents = AuditChain.CreateSeedChain(
         [

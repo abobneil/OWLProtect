@@ -40,7 +40,7 @@ export interface ControlPlaneStreamFrame<TPayload = unknown> {
   payload: TPayload | null;
 }
 
-export type HealthSeverity = "green" | "yellow" | "red";
+export type HealthSeverity = "Green" | "Yellow" | "Red";
 export type DiagnosticScope = "Healthy" | "LocalNetwork" | "Gateway" | "ServerSide" | "Policy" | "Authentication";
 
 export type ConnectionState =
@@ -237,7 +237,7 @@ export interface Alert {
   severity: HealthSeverity;
   title: string;
   description: string;
-  targetType: "device" | "gateway" | "policy" | "auth";
+  targetType: string;
   targetId: string;
   createdAtUtc: string;
   tenantId: string;
@@ -378,10 +378,6 @@ export interface StepUpRequest {
   password: string;
 }
 
-export interface PrivilegedOperationRequest {
-  operationName: string;
-}
-
 export interface UserUpsertRequest {
   id: string | null;
   username: string;
@@ -498,300 +494,18 @@ export interface DashboardSnapshot {
   auditEvents: AuditEvent[];
 }
 
-export const seededSnapshot: DashboardSnapshot = {
-  admins: [
-    {
-      id: "admin-1",
-      username: "admin",
-      role: "SuperAdmin",
-      mustChangePassword: true,
-      mfaEnrolled: false
-    }
-  ],
-  users: [
-    {
-      id: "user-1",
-      username: "user",
-      displayName: "Default Test User",
-      enabled: false,
-      testAccount: true,
-      provider: "local",
-      groupIds: ["group-test"],
-      policyIds: ["policy-test"],
-      tenantId: "tenant-default"
-    },
-    {
-      id: "user-2",
-      username: "maria.diaz",
-      displayName: "Maria Diaz",
-      enabled: true,
-      testAccount: false,
-      provider: "entra",
-      groupIds: ["group-engineering", "entra:eng"],
-      policyIds: ["policy-core"],
-      tenantId: "tenant-default"
-    }
-  ],
-  devices: [
-    {
-      id: "device-1",
-      name: "MARIAD-LT-14",
-      userId: "user-2",
-      city: "New York",
-      country: "United States",
-      publicIp: "203.0.113.10",
-      managed: true,
-      compliant: true,
-      postureScore: 96,
-      connectionState: "Healthy",
-      lastSeenUtc: "2026-03-07T23:45:00Z",
-      tenantId: "tenant-default",
-      registrationState: "Enrolled",
-      enrollmentKind: "ReEnrollment",
-      hardwareKey: "hw-mariad-lt-14",
-      serialNumber: "MDLT14-2394",
-      operatingSystem: "Windows 11 24H2",
-      registeredAtUtc: "2026-03-01T15:00:00Z",
-      lastEnrollmentAtUtc: "2026-03-07T22:55:00Z",
-      disabledAtUtc: null,
-      complianceReasons: []
-    },
-    {
-      id: "device-2",
-      name: "QA-LAB-DEVICE",
-      userId: "user-1",
-      city: "Austin",
-      country: "United States",
-      publicIp: "203.0.113.22",
-      managed: true,
-      compliant: false,
-      postureScore: 58,
-      connectionState: "PolicyBlocked",
-      lastSeenUtc: "2026-03-07T23:41:00Z",
-      tenantId: "tenant-default",
-      registrationState: "Pending",
-      enrollmentKind: "Bootstrap",
-      hardwareKey: "hw-qa-lab-device",
-      serialNumber: "QALAB-9911",
-      operatingSystem: "Windows 11 24H2",
-      registeredAtUtc: "2026-03-07T22:40:00Z",
-      lastEnrollmentAtUtc: "2026-03-07T22:40:00Z",
-      disabledAtUtc: null,
-      complianceReasons: ["firewall_disabled", "device_pending_approval"]
-    }
-  ],
-  gateways: [
-    {
-      id: "gw-1",
-      name: "us-east-core-1",
-      region: "us-east",
-      health: "green",
-      loadPercent: 31,
-      peerCount: 124,
-      cpuPercent: 38,
-      memoryPercent: 54,
-      latencyMs: 18,
-      tenantId: "tenant-default",
-      lastHeartbeatUtc: "2026-03-07T23:45:00Z"
-    },
-    {
-      id: "gw-2",
-      name: "us-east-core-2",
-      region: "us-east",
-      health: "yellow",
-      loadPercent: 72,
-      peerCount: 140,
-      cpuPercent: 70,
-      memoryPercent: 68,
-      latencyMs: 42,
-      tenantId: "tenant-default",
-      lastHeartbeatUtc: "2026-03-07T23:44:42Z"
-    }
-  ],
-  gatewayPools: [
-    {
-      id: "pool-1",
-      name: "East Coast Pool",
-      regions: ["us-east"],
-      gatewayIds: ["gw-1", "gw-2"],
-      tenantId: "tenant-default"
-    }
-  ],
-  policies: [
-    {
-      id: "policy-test",
-      name: "Default Test Policy",
-      cidrs: ["10.10.20.0/24"],
-      dnsZones: ["test.owlprotect.local"],
-      ports: [443, 8443],
-      mode: "split-tunnel",
-      tenantId: "tenant-default",
-      priority: 50,
-      targetGroupIds: ["group-test"],
-      requireManaged: true,
-      requireCompliant: false,
-      minimumPostureScore: 40,
-      allowedDeviceStates: ["Pending", "Enrolled"]
-    },
-    {
-      id: "policy-core",
-      name: "Core Enterprise Access",
-      cidrs: ["10.0.0.0/8", "172.16.20.0/24"],
-      dnsZones: ["corp.owlprotect.local", "eng.owlprotect.local"],
-      ports: [53, 80, 443, 3389],
-      mode: "split-tunnel",
-      tenantId: "tenant-default",
-      priority: 100,
-      targetGroupIds: ["group-engineering", "entra:eng"],
-      requireManaged: true,
-      requireCompliant: true,
-      minimumPostureScore: 80,
-      allowedDeviceStates: ["Enrolled"]
-    }
-  ],
-  sessions: [
-    {
-      id: "session-1",
-      userId: "user-2",
-      deviceId: "device-1",
-      gatewayId: "gw-1",
-      connectedAtUtc: "2026-03-07T22:59:00Z",
-      handshakeAgeSeconds: 21,
-      throughputMbps: 188,
-      tenantId: "tenant-default",
-      policyBundleVersion: "seed-policy-core-v1",
-      authorizedAtUtc: "2026-03-07T22:59:00Z",
-      revalidateAfterUtc: "2026-03-07T23:04:00Z"
-    }
-  ],
-  healthSamples: [
-    {
-      id: "health-1",
-      deviceId: "device-1",
-      state: "Healthy",
-      severity: "green",
-      latencyMs: 18,
-      jitterMs: 4,
-      packetLossPercent: 0.1,
-      throughputMbps: 188,
-      signalStrengthPercent: 91,
-      dnsReachable: true,
-      routeHealthy: true,
-      sampledAtUtc: "2026-03-07T23:45:00Z",
-      message: "Tunnel healthy with low jitter and strong signal.",
-      tenantId: "tenant-default"
-    },
-    {
-      id: "health-2",
-      deviceId: "device-2",
-      state: "PolicyBlocked",
-      severity: "red",
-      latencyMs: 0,
-      jitterMs: 0,
-      packetLossPercent: 0,
-      throughputMbps: 0,
-      signalStrengthPercent: 72,
-      dnsReachable: false,
-      routeHealthy: false,
-      sampledAtUtc: "2026-03-07T23:41:00Z",
-      message: "Device posture is noncompliant, so enterprise routes remain blocked.",
-      tenantId: "tenant-default"
-    }
-  ],
-  alerts: [
-    {
-      id: "alert-1",
-      severity: "red",
-      title: "Test account disabled",
-      description: "The seeded test user remains disabled until an admin explicitly enables it.",
-      targetType: "device",
-      targetId: "device-2",
-      createdAtUtc: "2026-03-07T23:00:00Z",
-      tenantId: "tenant-default"
-    },
-    {
-      id: "alert-2",
-      severity: "yellow",
-      title: "Gateway load rising",
-      description: "Gateway us-east-core-2 is above the yellow load threshold.",
-      targetType: "gateway",
-      targetId: "gw-2",
-      createdAtUtc: "2026-03-07T23:39:00Z",
-      tenantId: "tenant-default"
-    }
-  ],
-  authProviders: [
-    {
-      id: "auth-1",
-      name: "Microsoft Entra ID",
-      type: "entra",
-      issuer: "https://login.microsoftonline.com/example/v2.0",
-      clientId: "entra-client-id",
-      usernameClaimPaths: ["preferred_username", "upn", "email", "sub"],
-      groupClaimPaths: ["groups"],
-      mfaClaimPaths: ["amr", "acr"],
-      requireMfa: true,
-      silentSsoEnabled: true,
-      tenantId: "tenant-default"
-    },
-    {
-      id: "auth-2",
-      name: "Generic OIDC",
-      type: "oidc",
-      issuer: "https://identity.example.com",
-      clientId: "oidc-client-id",
-      usernameClaimPaths: ["preferred_username", "email", "sub"],
-      groupClaimPaths: ["groups"],
-      mfaClaimPaths: ["amr"],
-      requireMfa: true,
-      silentSsoEnabled: false,
-      tenantId: "tenant-default"
-    }
-  ],
-  auditEvents: [
-    {
-      id: "audit-1",
-      sequence: 1,
-      actor: "system",
-      action: "seed-default-admin",
-      targetType: "admin",
-      targetId: "admin-1",
-      createdAtUtc: "2026-03-07T22:00:00Z",
-      outcome: "success",
-      detail: "Seeded default admin with forced password reset.",
-      previousEventHash: null,
-      eventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80",
-      tenantId: "tenant-default"
-    },
-    {
-      id: "audit-2",
-      sequence: 2,
-      actor: "system",
-      action: "seed-test-user",
-      targetType: "user",
-      targetId: "user-1",
-      createdAtUtc: "2026-03-07T22:00:00Z",
-      outcome: "success",
-      detail: "Seeded disabled test user with restricted default policy.",
-      previousEventHash: "5c1536bfc3f2d43bdf09bb0d4fc977d525e82bcc024969536980da25c021ed80",
-      eventHash: "81c1d5d266f11fa950a49b4130563f9811c0433b1696795ab2bd58b8d085def2",
-      tenantId: "tenant-default"
-    }
-  ]
-};
-
 const heartbeatTtlMs = 60_000;
 
 function normalizeHealth(score: number, available: boolean): HealthSeverity {
   if (!available || score < 40) {
-    return "red";
+    return "Red";
   }
 
   if (score < 70) {
-    return "yellow";
+    return "Yellow";
   }
 
-  return "green";
+  return "Green";
 }
 
 export function scoreGateway(gateway: Gateway, now = "2026-03-07T23:45:00Z"): GatewayScore {
@@ -805,10 +519,10 @@ export function scoreGateway(gateway: Gateway, now = "2026-03-07T23:45:00Z"): Ga
     signals.push("heartbeat_stale");
   }
 
-  if (gateway.health === "red") {
+  if (gateway.health === "Red") {
     score -= 45;
     signals.push("health_red");
-  } else if (gateway.health === "yellow") {
+  } else if (gateway.health === "Yellow") {
     score -= 20;
     signals.push("health_yellow");
   }
@@ -849,7 +563,7 @@ export function scoreGateway(gateway: Gateway, now = "2026-03-07T23:45:00Z"): Ga
   }
 
   score = Math.max(0, Math.min(100, score));
-  const available = gateway.health !== "red" && heartbeatMs !== 0 && nowMs - heartbeatMs <= heartbeatTtlMs;
+  const available = gateway.health !== "Red" && heartbeatMs !== 0 && nowMs - heartbeatMs <= heartbeatTtlMs;
 
   return {
     gatewayId: gateway.id,
@@ -892,10 +606,10 @@ export function buildGatewayPoolStatuses(snapshot: DashboardSnapshot, now = "202
         .map((gateway) => gateway.gatewayId);
       const score = primary ? Math.min(100, primary.score + (failoverGatewayIds.length > 0 ? 5 : 0)) : 0;
       const health: HealthSeverity = primary
-        ? primary.health === "green" && failoverGatewayIds.length === 0 && primary.score < 85
-          ? "yellow"
+        ? primary.health === "Green" && failoverGatewayIds.length === 0 && primary.score < 85
+          ? "Yellow"
           : primary.health
-        : "red";
+        : "Red";
 
       return {
         poolId: pool.id,
@@ -935,7 +649,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: "Policy",
-            severity: "red",
+            severity: "Red",
             summary: "Policy is blocking enterprise access.",
             detail: "The device is failing posture or enrollment checks, so enterprise routes remain disabled.",
             gatewayId: session?.gatewayId ?? null,
@@ -950,7 +664,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: "Authentication",
-            severity: "red",
+            severity: "Red",
             summary: "Client authentication expired.",
             detail: "The device must refresh its client session before the tunnel can be restored.",
             gatewayId: session?.gatewayId ?? null,
@@ -966,7 +680,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: "LocalNetwork",
-            severity: sample?.severity ?? "yellow",
+            severity: sample?.severity ?? "Yellow",
             summary: "Local network quality is degrading the tunnel.",
             detail: "Signal strength, packet loss, or last-mile throughput is below the expected threshold before traffic reaches the gateway.",
             gatewayId: session?.gatewayId ?? null,
@@ -981,7 +695,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: "Gateway",
-            severity: sample?.severity ?? "yellow",
+            severity: sample?.severity ?? "Yellow",
             summary: "Gateway performance is the primary bottleneck.",
             detail: "The tunnel is established, but the selected gateway is reporting degraded health or elevated latency.",
             gatewayId: session?.gatewayId ?? null,
@@ -996,7 +710,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: sample && (!sample.dnsReachable || sample.signalStrengthPercent < 60) ? "LocalNetwork" : gateway ? "Gateway" : "ServerSide",
-            severity: "red",
+            severity: "Red",
             summary: "A server-side dependency is unavailable.",
             detail: "The client still has local connectivity, but the selected gateway or a backend dependency is not responding.",
             gatewayId: session?.gatewayId ?? null,
@@ -1011,7 +725,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             deviceName: device.name,
             state: device.connectionState,
             scope: "Healthy",
-            severity: "green",
+            severity: "Green",
             summary: "Tunnel performance is healthy.",
             detail: "Latency, jitter, and route health are within the normal operating envelope.",
             gatewayId: session?.gatewayId ?? null,
@@ -1023,7 +737,7 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
       }
     })
     .sort((left, right) => {
-      const severityWeight: Record<HealthSeverity, number> = { red: 0, yellow: 1, green: 2 };
+      const severityWeight: Record<HealthSeverity, number> = { Red: 0, Yellow: 1, Green: 2 };
       if (severityWeight[left.severity] !== severityWeight[right.severity]) {
         return severityWeight[left.severity] - severityWeight[right.severity];
       }
@@ -1076,6 +790,3 @@ export function buildConnectionCityAggregates(snapshot: DashboardSnapshot): Conn
     .sort((left, right) => right.impactedCount - left.impactedCount || right.deviceCount - left.deviceCount || left.city.localeCompare(right.city));
 }
 
-export const seededGatewayPoolStatuses = buildGatewayPoolStatuses(seededSnapshot);
-export const seededDeviceDiagnostics = buildDeviceDiagnostics(seededSnapshot);
-export const seededConnectionCityAggregates = buildConnectionCityAggregates(seededSnapshot);

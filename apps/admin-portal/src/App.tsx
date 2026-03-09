@@ -25,9 +25,15 @@ import {
 import { PortalProvider, usePortal } from "./portal";
 
 const severityLabel: Record<HealthSeverity, string> = {
-  green: "Healthy",
-  yellow: "Attention",
-  red: "Critical"
+  Green: "Healthy",
+  Yellow: "Attention",
+  Red: "Critical"
+};
+
+const severityTone: Record<HealthSeverity, "green" | "yellow" | "red"> = {
+  Green: "green",
+  Yellow: "yellow",
+  Red: "red"
 };
 
 const scopeLabel: Record<DeviceDiagnostics["scope"], string> = {
@@ -363,7 +369,7 @@ function BootstrapPage() {
 function DashboardPage() {
   const portal = usePortal();
   const healthyDevices = portal.data.devices.filter((device) => device.connectionState === "Healthy").length;
-  const openIncidents = portal.data.alerts.filter((alert) => alert.severity !== "green").length;
+  const openIncidents = portal.data.alerts.filter((alert) => alert.severity !== "Green").length;
   const averagePoolScore = portal.data.gatewayPoolStatuses.length
     ? Math.round(portal.data.gatewayPoolStatuses.reduce((sum, pool) => sum + pool.score, 0) / portal.data.gatewayPoolStatuses.length)
     : 0;
@@ -796,7 +802,7 @@ function GatewaysPage() {
             columns={[
               { header: "Name", render: (gateway) => <button className="link-button" onClick={() => setSelectedGatewayId(gateway.id)} type="button">{gateway.name}</button> },
               { header: "Region", render: (gateway) => gateway.region },
-              { header: "Health", render: (gateway) => <span className={`status-pill status-pill--${gateway.health}`}>{severityLabel[gateway.health]}</span> },
+              { header: "Health", render: (gateway) => <span className={`status-pill status-pill--${severityTone[gateway.health]}`}>{severityLabel[gateway.health]}</span> },
               { header: "Load", render: (gateway) => `${gateway.loadPercent}%` },
               { header: "CPU", render: (gateway) => `${gateway.cpuPercent}%` },
               { header: "Latency", render: (gateway) => `${gateway.latencyMs} ms` },
@@ -815,9 +821,9 @@ function GatewaysPage() {
           <label className="field">
             <span>Health</span>
             <select onChange={(event) => setForm((current) => ({ ...current, health: event.target.value as Gateway["health"] }))} value={form.health}>
-              <option value="green">green</option>
-              <option value="yellow">yellow</option>
-              <option value="red">red</option>
+              <option value="Green">Green</option>
+              <option value="Yellow">Yellow</option>
+              <option value="Red">Red</option>
             </select>
           </label>
           <label className="field">
@@ -1018,7 +1024,7 @@ function AlertsPage() {
         badges={[
           `Alert stream ${portal.streams.alerts.state}`,
           `${portal.data.alerts.length} alert records`,
-          `${portal.data.alerts.filter((alert) => alert.severity === "red").length} critical`
+          `${portal.data.alerts.filter((alert) => alert.severity === "Red").length} critical`
         ]}
       />
 
@@ -1158,7 +1164,7 @@ function SettingsPage() {
           <SectionHeading eyebrow="Tenants" title="Tenant catalog" detail="Read from the tenant endpoint and reused by every management form." />
           <div className="stack-list">
             {portal.data.tenants.map((tenant) => (
-              <FeatureCard body={`Region ${tenant.region}${tenant.isDefault ? " · default" : ""}`} key={tenant.id} title={tenant.name} />
+              <FeatureCard body={`Region ${tenant.region}${tenant.isDefault ? " | default" : ""}`} key={tenant.id} title={tenant.name} />
             ))}
           </div>
         </Panel>
@@ -1184,7 +1190,7 @@ function SettingsPage() {
           <SectionHeading eyebrow="Streams" title="Realtime status" detail="WebSocket reconnect state from the shared client layer." />
           <div className="stack-list">
             {Object.entries(portal.streams).map(([key, stream]) => (
-              <FeatureCard body={`State ${stream.state}${stream.lastEventAtUtc ? ` · last event ${formatDateTime(stream.lastEventAtUtc)}` : ""}${stream.error ? ` · ${stream.error}` : ""}`} key={key} title={key} />
+              <FeatureCard body={`State ${stream.state}${stream.lastEventAtUtc ? ` | last event ${formatDateTime(stream.lastEventAtUtc)}` : ""}${stream.error ? ` | ${stream.error}` : ""}`} key={key} title={key} />
             ))}
           </div>
         </Panel>
@@ -1363,7 +1369,7 @@ function GatewayPoolCard({ pool }: { pool: GatewayPoolStatus }) {
           <h3>{pool.name}</h3>
           <p className="muted">Primary {primary?.gatewayName ?? "No healthy gateway"}</p>
         </div>
-        <span className={`status-pill status-pill--${pool.health}`}>{pool.score}</span>
+        <span className={`status-pill status-pill--${severityTone[pool.health]}`}>{pool.score}</span>
       </div>
       <div className="metric-grid">
         <Metric label="Regions" value={joinList(pool.regions)} />
@@ -1403,7 +1409,7 @@ function DiagnosticCard({ diagnostic }: { diagnostic: DeviceDiagnostics }) {
           <h3>{diagnostic.deviceName}</h3>
           <p className="muted">{scopeLabel[diagnostic.scope]}</p>
         </div>
-        <span className={`status-pill status-pill--${diagnostic.severity}`}>{severityLabel[diagnostic.severity]}</span>
+        <span className={`status-pill status-pill--${severityTone[diagnostic.severity]}`}>{severityLabel[diagnostic.severity]}</span>
       </div>
       <p>{diagnostic.summary}</p>
       <p className="muted">{diagnostic.detail}</p>
@@ -1422,7 +1428,7 @@ function AlertCard({ alert }: { alert: Alert }) {
           <h3>{alert.title}</h3>
           <p className="muted">{alert.description}</p>
         </div>
-        <span className={`status-pill status-pill--${alert.severity}`}>{severityLabel[alert.severity]}</span>
+        <span className={`status-pill status-pill--${severityTone[alert.severity]}`}>{severityLabel[alert.severity]}</span>
       </div>
       <div className="feature-card__footer">
         <span>{alert.targetType}:{alert.targetId}</span>
@@ -1438,7 +1444,7 @@ function AuditEventCard({ event }: { event: AuditEvent }) {
       <div className="panel__header">
         <div>
           <h3>{event.action}</h3>
-          <p className="muted">{event.actor} · {event.targetType}:{event.targetId}</p>
+          <p className="muted">{event.actor} | {event.targetType}:{event.targetId}</p>
         </div>
         <span className={event.outcome === "success" ? "status-pill status-pill--green" : "status-pill status-pill--red"}>{event.outcome}</span>
       </div>
@@ -1567,7 +1573,7 @@ function toGatewayRequest(gateway: Gateway | null, tenants: Tenant[]): GatewayUp
     tenantId: gateway.tenantId
   } : {
     cpuPercent: 20,
-    health: "green" as const,
+    health: "Green" as const,
     id: null,
     latencyMs: 20,
     loadPercent: 10,
