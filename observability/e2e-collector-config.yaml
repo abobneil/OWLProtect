@@ -1,0 +1,29 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch:
+
+exporters:
+  file:
+    path: /evidence/collector-evidence.jsonl
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]

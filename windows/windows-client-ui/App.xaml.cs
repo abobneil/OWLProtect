@@ -4,7 +4,7 @@ namespace OWLProtect.WindowsClientUi;
 
 public partial class App : Application
 {
-    private Window? _window;
+    private MainWindow? _window;
 
     public App()
     {
@@ -17,4 +17,3 @@ public partial class App : Application
         _window.Activate();
     }
 }
-

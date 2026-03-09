@@ -9,6 +9,7 @@ public sealed class WindowsClientOptions
     public string? InteractiveProviderId { get; set; }
     public string? InteractiveProviderToken { get; set; }
     public string? InteractiveUsername { get; set; } = "maria.diaz";
+    public string? OtlpEndpoint { get; set; }
     public string DeviceCity { get; set; } = "Unknown";
     public string DeviceCountry { get; set; } = "Unknown";
     public string SupportBundleDirectory { get; set; } =
@@ -16,5 +17,6 @@ public sealed class WindowsClientOptions
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OWLProtect",
             "support");
+    public bool LaunchTrayAtLogon { get; set; } = true;
     public bool TreatDomainJoinedDeviceAsManaged { get; set; } = true;
 }

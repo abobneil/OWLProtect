@@ -9,6 +9,8 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev:admin": "npm run dev --workspace @owlprotect/admin-portal",
+    "e2e:disposable": "node ./scripts/run-powershell.mjs ./scripts/e2e/Invoke-DisposableCertification.ps1",
+    "e2e:win11": "node ./scripts/run-powershell.mjs ./windows/e2e/Invoke-Win11TestboxValidation.ps1",
     "lint": "npm run lint --workspaces --if-present",
     "package:containers": "node ./scripts/run-powershell.mjs ./scripts/package-containers.ps1",
     "package:windows": "node ./scripts/run-powershell.mjs ./scripts/package-windows-client.ps1",

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title>OWLProtect client owl icon</title>
+  <path d="M24 34 40 10l12 28Z" fill="#4f5f6b"/>
+  <path d="m104 34-16-24-12 28Z" fill="#4f5f6b"/>
+  <ellipse cx="64" cy="70" rx="42" ry="36" fill="#4f5f6b"/>
+  <ellipse cx="48" cy="66" rx="8" ry="11" fill="#a0a5aa"/>
+  <ellipse cx="80" cy="66" rx="8" ry="11" fill="#a0a5aa"/>
+  <path d="m64 74-10 16h20Z" fill="#d7a731"/>
+</svg>

@@ -71,6 +71,44 @@ public sealed class ClientSessionState(
                 posture.Report,
                 cancellationToken);
 
+            if (enrollment.RequiresApproval || _device.RegistrationState != DeviceRegistrationState.Enrolled)
+            {
+                UpdateStatus(status => status with
+                {
+                    Connected = false,
+                    Username = _user.Username,
+                    DeviceId = _device.Id,
+                    CurrentGateway = "awaiting approval",
+                    State = ConnectionState.ApprovalPending.ToString(),
+                    DiagnosticScope = DiagnosticScope.Policy.ToString(),
+                    UserMessage = "Device enrollment is awaiting admin approval.",
+                    DiagnosticDetail = "The device posture was submitted successfully, but the control plane will not issue a tunnel session until an admin approves the enrollment.",
+                    AuthMode = authSession.Mode,
+                    RecoveryState = "ApprovalPending",
+                    RegistrationState = _device.RegistrationState.ToString(),
+                    EnrollmentKind = _device.EnrollmentKind.ToString(),
+                    PolicyBundleVersion = "pending-approval",
+                    Routes = [],
+                    DnsZones = [],
+                    Ports = [],
+                    FailoverGateways = [],
+                    Timeline = AppendTimeline(
+                        status.Timeline,
+                        $"{DateTimeOffset.UtcNow:HH:mm:ss} Enrollment completed and is waiting for admin approval."),
+                    LatencyMs = 0,
+                    JitterMs = 0,
+                    SignalStrengthPercent = posture.Status.Compliant ? 91 : 66,
+                    ThroughputMbps = 0,
+                    AccessTokenExpiresAtUtc = _tokens.AccessTokenExpiresAtUtc,
+                    RevalidateAfterUtc = null,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                    LastErrorCode = "device_pending_approval",
+                    Posture = posture.Status
+                });
+
+                return _status;
+            }
+
             var clientSession = await controlPlaneClient.IssueClientSessionAsync(
                 _tokens.AccessToken,
                 _device.Id,
@@ -223,6 +261,95 @@ public sealed class ClientSessionState(
         }
     }
 
+    public async Task<ClientStatus> RefreshAuthorizationAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_status.Connected || _tokens is null || _device is null || _platformSession is null)
+            {
+                return _status;
+            }
+
+            try
+            {
+                var revalidated = await controlPlaneClient.RevalidateClientSessionAsync(_tokens.AccessToken, _device.Id, cancellationToken);
+                ApplyRevalidatedSession(revalidated);
+                return _status;
+            }
+            catch (ControlPlaneApiException exception) when (exception.StatusCode == HttpStatusCode.Unauthorized && _tokens.RefreshTokenExpiresAtUtc > DateTimeOffset.UtcNow)
+            {
+                try
+                {
+                    var refreshed = await controlPlaneClient.RefreshSessionAsync(_tokens.RefreshToken, cancellationToken);
+                    _tokens = refreshed.Tokens;
+                    _platformSession = refreshed.Session;
+                    var revalidated = await controlPlaneClient.RevalidateClientSessionAsync(_tokens.AccessToken, _device.Id, cancellationToken);
+                    ApplyRevalidatedSession(revalidated);
+                    return _status;
+                }
+                catch (Exception refreshException)
+                {
+                    HandleRevalidationFailure(refreshException);
+                    return _status;
+                }
+            }
+            catch (Exception exception)
+            {
+                HandleRevalidationFailure(exception);
+                return _status;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task PublishHealthSampleAsync(ClientStatus status, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_status.Connected || _tokens is null || _device is null || _platformSession is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await controlPlaneClient.SubmitHealthSampleAsync(
+                    _tokens.AccessToken,
+                    _device.Id,
+                    new ClientHealthReport(
+                        ParseConnectionState(status.State),
+                        status.LatencyMs,
+                        status.JitterMs,
+                        PacketLossPercent: InferPacketLossPercent(status.State, status.SignalStrengthPercent),
+                        status.ThroughputMbps,
+                        status.SignalStrengthPercent,
+                        DnsReachable: !string.Equals(status.State, ConnectionState.ServerUnavailable.ToString(), StringComparison.OrdinalIgnoreCase),
+                        RouteHealthy: status.ThroughputMbps > 0 || string.Equals(status.State, ConnectionState.Healthy.ToString(), StringComparison.OrdinalIgnoreCase),
+                        status.DiagnosticDetail,
+                        status.UpdatedAtUtc),
+                    cancellationToken);
+                _device = _device with
+                {
+                    ConnectionState = ParseConnectionState(status.State),
+                    LastSeenUtc = status.UpdatedAtUtc
+                };
+            }
+            catch (ControlPlaneApiException exception) when (exception.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                ApplyAdminDisconnectedStatus("admin_disconnected", "The control plane revoked the active client session while diagnostics were being published.");
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public void UpdateDiagnostics(ClientStatus nextStatus)
     {
         lock (_statusGate)
@@ -260,12 +387,8 @@ public sealed class ClientSessionState(
             _status = _status with
             {
                 Connected = false,
-                State = errorCode.Contains("policy", StringComparison.OrdinalIgnoreCase)
-                    ? ConnectionState.PolicyBlocked.ToString()
-                    : ConnectionState.AuthExpired.ToString(),
-                DiagnosticScope = errorCode.Contains("policy", StringComparison.OrdinalIgnoreCase)
-                    ? DiagnosticScope.Policy.ToString()
-                    : DiagnosticScope.Authentication.ToString(),
+                State = ResolveFailureState(errorCode).ToString(),
+                DiagnosticScope = ResolveFailureScope(errorCode).ToString(),
                 UserMessage = "Connection attempt failed.",
                 DiagnosticDetail = exception.Message,
                 RecoveryState = "ReconnectRequired",
@@ -275,6 +398,44 @@ public sealed class ClientSessionState(
                 UpdatedAtUtc = DateTimeOffset.UtcNow
             };
         }
+    }
+
+    private void HandleRevalidationFailure(Exception exception)
+    {
+        if (exception is ControlPlaneApiException apiException)
+        {
+            if (apiException.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                if (_tokens?.RefreshTokenExpiresAtUtc <= DateTimeOffset.UtcNow)
+                {
+                    ApplyAuthExpiredStatus("refresh_token_expired", "The control plane no longer accepts the cached client session and the refresh token has expired.");
+                    return;
+                }
+
+                ApplyAdminDisconnectedStatus(apiException.ErrorCode, "The control plane revoked the active client session.");
+                return;
+            }
+
+            if (apiException.ErrorCode is "policy_not_resolved" or "device_inactive" or "device_not_enrolled" or "device_unmanaged")
+            {
+                UpdateStatus(status => status with
+                {
+                    Connected = false,
+                    State = ConnectionState.PolicyBlocked.ToString(),
+                    DiagnosticScope = DiagnosticScope.Policy.ToString(),
+                    UserMessage = "The control plane blocked the current tunnel authorization.",
+                    DiagnosticDetail = exception.Message,
+                    RecoveryState = "ReconnectRequired",
+                    Timeline = AppendTimeline(status.Timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Revalidation failed with {apiException.ErrorCode}."),
+                    ThroughputMbps = 0,
+                    LastErrorCode = apiException.ErrorCode,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow
+                });
+                return;
+            }
+        }
+
+        HandleConnectionFailure(exception);
     }
 
     private void ClearCachedSession(string timelineMessage, string userMessage, string diagnosticDetail)
@@ -315,6 +476,49 @@ public sealed class ClientSessionState(
 
     private string BuildConnectedDetail(ControlPlaneClientAuthSessionResponse clientSession) =>
         $"Device '{clientSession.Device.Name}' is {clientSession.Device.RegistrationState}. Policy bundle '{clientSession.Bundle.Version}' routes {clientSession.Bundle.Cidrs.Count} CIDR(s) and {clientSession.Bundle.DnsZones.Count} DNS zone(s) through {clientSession.Placement.GatewayName}.";
+
+    private void ApplyRevalidatedSession(ControlPlaneClientSessionRevalidationResponse revalidated)
+    {
+        _platformSession = revalidated.Session;
+        _user = revalidated.User;
+        _device = revalidated.Device;
+        _bundle = revalidated.Bundle;
+        _placement = revalidated.Placement;
+
+        UpdateStatus(status =>
+        {
+            var nextState = ParseConnectionState(status.State);
+            var normalizedState = nextState is ConnectionState.AdminDisconnected or ConnectionState.AuthExpired or ConnectionState.PolicyBlocked or ConnectionState.ServerUnavailable
+                ? ConnectionState.Healthy
+                : nextState;
+            return status with
+            {
+                Connected = true,
+                Username = revalidated.User.Username,
+                DeviceId = revalidated.Device.Id,
+                CurrentGateway = revalidated.Placement.GatewayName,
+                State = normalizedState.ToString(),
+                DiagnosticScope = normalizedState == ConnectionState.Healthy ? DiagnosticScope.Healthy.ToString() : status.DiagnosticScope,
+                UserMessage = normalizedState == ConnectionState.Healthy ? $"Authorization refreshed. Gateway '{revalidated.Placement.GatewayName}' remains active." : status.UserMessage,
+                DiagnosticDetail = normalizedState == ConnectionState.Healthy
+                    ? $"Policy bundle '{revalidated.Bundle.Version}' remains active for device '{revalidated.Device.Name}'."
+                    : status.DiagnosticDetail,
+                RecoveryState = "Connected",
+                RegistrationState = revalidated.Device.RegistrationState.ToString(),
+                EnrollmentKind = revalidated.Device.EnrollmentKind.ToString(),
+                PolicyBundleVersion = revalidated.Bundle.Version,
+                Routes = revalidated.Bundle.Cidrs.ToArray(),
+                DnsZones = revalidated.Bundle.DnsZones.ToArray(),
+                Ports = revalidated.Bundle.Ports.ToArray(),
+                FailoverGateways = ResolveFailoverGateways(revalidated.Placement).ToArray(),
+                AccessTokenExpiresAtUtc = _tokens?.AccessTokenExpiresAtUtc,
+                RevalidateAfterUtc = revalidated.RevalidateAfterUtc,
+                Timeline = AppendTimeline(status.Timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Revalidated the client session against {revalidated.Placement.GatewayName}."),
+                LastErrorCode = null,
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            };
+        });
+    }
 
     private IReadOnlyList<string> ResolveFailoverGateways(GatewayPlacement placement)
     {
@@ -366,6 +570,40 @@ public sealed class ClientSessionState(
         {
             _status = update(_status);
         }
+    }
+
+    private void ApplyAdminDisconnectedStatus(string? errorCode, string diagnosticDetail)
+    {
+        UpdateStatus(status => status with
+        {
+            Connected = false,
+            State = ConnectionState.AdminDisconnected.ToString(),
+            DiagnosticScope = DiagnosticScope.Authentication.ToString(),
+            UserMessage = "An administrator disconnected this device.",
+            DiagnosticDetail = diagnosticDetail,
+            RecoveryState = "AdminDisconnected",
+            Timeline = AppendTimeline(status.Timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} The control plane revoked the active client session."),
+            ThroughputMbps = 0,
+            LastErrorCode = errorCode ?? "admin_disconnected",
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+    }
+
+    private void ApplyAuthExpiredStatus(string errorCode, string diagnosticDetail)
+    {
+        UpdateStatus(status => status with
+        {
+            Connected = false,
+            State = ConnectionState.AuthExpired.ToString(),
+            DiagnosticScope = DiagnosticScope.Authentication.ToString(),
+            UserMessage = "Platform session expired. Sign in again to reconnect.",
+            DiagnosticDetail = diagnosticDetail,
+            RecoveryState = "ReauthenticateRequired",
+            Timeline = AppendTimeline(status.Timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} The cached platform session can no longer be refreshed."),
+            ThroughputMbps = 0,
+            LastErrorCode = errorCode,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
     }
 
     private void EvaluateRecoveryState()
@@ -457,6 +695,33 @@ public sealed class ClientSessionState(
                 OperatingSystem: Environment.OSVersion.VersionString,
                 ComplianceReasons: ["posture_not_collected"],
                 CollectedAtUtc: null));
+
+    private static ConnectionState ResolveFailureState(string errorCode) =>
+        errorCode.Contains("policy", StringComparison.OrdinalIgnoreCase) || errorCode.Contains("device_", StringComparison.OrdinalIgnoreCase)
+            ? ConnectionState.PolicyBlocked
+            : ConnectionState.AuthExpired;
+
+    private static DiagnosticScope ResolveFailureScope(string errorCode) =>
+        errorCode.Contains("policy", StringComparison.OrdinalIgnoreCase) || errorCode.Contains("device_", StringComparison.OrdinalIgnoreCase)
+            ? DiagnosticScope.Policy
+            : DiagnosticScope.Authentication;
+
+    private static ConnectionState ParseConnectionState(string value) =>
+        Enum.TryParse<ConnectionState>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : ConnectionState.ServerUnavailable;
+
+    private static decimal InferPacketLossPercent(string state, int signalStrengthPercent) =>
+        ParseConnectionState(state) switch
+        {
+            ConnectionState.Healthy => 0.1m,
+            ConnectionState.HighJitter => 2.5m,
+            ConnectionState.LowBandwidth => 4m,
+            ConnectionState.LocalNetworkPoor => signalStrengthPercent < 50 ? 25m : 12m,
+            ConnectionState.ServerUnavailable => 50m,
+            ConnectionState.AdminDisconnected => 100m,
+            _ => 0m
+        };
 
     private static IReadOnlyList<string> AppendTimeline(IReadOnlyList<string> existing, string entry) =>
         existing

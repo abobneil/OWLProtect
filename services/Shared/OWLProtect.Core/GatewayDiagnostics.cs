@@ -251,6 +251,19 @@ public static class GatewayDiagnostics
 
         return device.ConnectionState switch
         {
+            ConnectionState.ApprovalPending => new DeviceDiagnostics(
+                device.Id,
+                device.Name,
+                device.ConnectionState,
+                DiagnosticScope.Policy,
+                HealthSeverity.Yellow,
+                "Device approval is still pending.",
+                "Enrollment completed, but an admin still needs to approve the device before routes can be enabled.",
+                session?.GatewayId,
+                gateway?.Name,
+                observedAt,
+                signals,
+                device.TenantId),
             ConnectionState.PolicyBlocked => new DeviceDiagnostics(
                 device.Id,
                 device.Name,
@@ -272,6 +285,19 @@ public static class GatewayDiagnostics
                 HealthSeverity.Red,
                 "Client authentication expired.",
                 "The device must refresh its client session before the tunnel can be restored.",
+                session?.GatewayId,
+                gateway?.Name,
+                observedAt,
+                signals,
+                device.TenantId),
+            ConnectionState.AdminDisconnected => new DeviceDiagnostics(
+                device.Id,
+                device.Name,
+                device.ConnectionState,
+                DiagnosticScope.Authentication,
+                HealthSeverity.Red,
+                "An admin disconnected the device.",
+                "The active client session was revoked by an administrator. Reconnect to restore the tunnel.",
                 session?.GatewayId,
                 gateway?.Name,
                 observedAt,
@@ -364,7 +390,7 @@ public static class GatewayDiagnostics
                 group.Count(item =>
                     item.Device.ConnectionState is ConnectionState.LocalNetworkPoor or ConnectionState.LowBandwidth or ConnectionState.HighJitter or ConnectionState.GatewayDegraded or ConnectionState.ServerUnavailable),
                 group.Count(item =>
-                    item.Device.ConnectionState is ConnectionState.PolicyBlocked or ConnectionState.AuthExpired),
+                    item.Device.ConnectionState is ConnectionState.ApprovalPending or ConnectionState.PolicyBlocked or ConnectionState.AuthExpired or ConnectionState.AdminDisconnected),
                 group.SelectMany(item => item.GatewayIds).Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray(),
                 group.Key.TenantId))
             .OrderByDescending(city => city.ImpactedCount)
@@ -419,6 +445,7 @@ public static class GatewayDiagnostics
         state switch
         {
             ConnectionState.Healthy => HealthSeverity.Green,
+            ConnectionState.ApprovalPending => HealthSeverity.Yellow,
             ConnectionState.LocalNetworkPoor or ConnectionState.LowBandwidth or ConnectionState.HighJitter or ConnectionState.GatewayDegraded => HealthSeverity.Yellow,
             _ => HealthSeverity.Red
         };

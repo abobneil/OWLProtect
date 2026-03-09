@@ -10,6 +10,7 @@ builder.Services.AddSingleton<LocalPostureCollector>();
 builder.Services.AddSingleton<SupportBundleExporter>();
 builder.Services.AddSingleton<ClientSessionState>();
 builder.Services.AddSingleton<PipeProtocolServer>();
+builder.Services.AddHostedService<ClientRevalidationWorker>();
 builder.Services.AddHostedService<DiagnosticsSamplerWorker>();
 builder.Services.AddHostedService<NamedPipeWorker>();
 

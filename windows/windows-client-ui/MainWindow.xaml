@@ -16,18 +16,43 @@
             </Grid.RowDefinitions>
 
             <Border Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="24">
-                <StackPanel Spacing="10">
-                    <TextBlock Text="OWLProtect Client" FontSize="30" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
-                    <TextBlock Text="Service-owned Windows VPN workflow with silent sign-in, posture collection, session recovery, and support exports." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
-                    <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <Button x:Name="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
-                        <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
-                        <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
-                        <Button x:Name="SignOutButton" Content="Sign Out" Click="SignOutButton_Click" />
-                        <Button x:Name="SupportBundleButton" Content="Export Support Bundle" Click="SupportBundleButton_Click" />
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="OWLProtect Client" FontSize="30" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock Text="The client maintains a live authorization loop, publishes diagnostics, and surfaces operator-driven disconnects without manual desktop intervention." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Border x:Name="ConnectionBadge" Background="{StaticResource AccentBrush}" CornerRadius="999" Padding="12,6">
+                                <TextBlock x:Name="ConnectionBadgeText" Foreground="{StaticResource TextBrush}" Text="Disconnected" />
+                            </Border>
+                            <Border x:Name="QualityBadge" Background="#FF4F5F6B" CornerRadius="999" Padding="12,6">
+                                <TextBlock x:Name="QualityBadgeText" Foreground="{StaticResource TextBrush}" Text="Quality unknown" />
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button x:Name="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
+                            <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
+                            <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
+                            <Button x:Name="SignOutButton" Content="Sign Out" Click="SignOutButton_Click" />
+                            <Button x:Name="SupportBundleButton" Content="Export Support Bundle" Click="SupportBundleButton_Click" />
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
+
+                    <Border Grid.Column="1" Background="#FF10181B" CornerRadius="24" Padding="18">
+                        <Grid Width="150" Height="130">
+                            <Polygon x:Name="OwlLeftEar" Fill="#FF4F5F6B" Points="38,18 55,0 67,34" />
+                            <Polygon x:Name="OwlRightEar" Fill="#FF4F5F6B" Points="112,18 95,0 83,34" />
+                            <Ellipse x:Name="OwlFace" Width="104" Height="90" Fill="#FF4F5F6B" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <Ellipse x:Name="OwlLeftEye" Width="18" Height="24" Fill="#FFA0A5AA" Margin="0,14,28,0" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <Ellipse x:Name="OwlRightEye" Width="18" Height="24" Fill="#FFA0A5AA" Margin="28,14,0,0" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <Polygon Fill="#FFD7A731" Points="75,76 62,96 88,96" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </Grid>
             </Border>
 
             <Grid Grid.Row="1" ColumnSpacing="18">
@@ -92,7 +117,7 @@
             </Grid>
 
             <Border Grid.Row="3" Padding="18" Background="#131B1F" CornerRadius="18">
-                <TextBlock Text="Named-pipe service host: owlprotect-client | IPC protocol v1" Foreground="{StaticResource MutedTextBrush}" />
+                <TextBlock Text="Named-pipe service host: owlprotect-client | IPC protocol v1 | tray polling every 5 seconds" Foreground="{StaticResource MutedTextBrush}" />
             </Border>
         </Grid>
     </ScrollViewer>

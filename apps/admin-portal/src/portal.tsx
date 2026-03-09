@@ -27,6 +27,7 @@ import {
   type ConnectionMapCityAggregate,
   type ControlPlaneStreamFrame,
   type Device,
+  type DeviceDisconnectResponse,
   type DeviceDiagnostics,
   type Gateway,
   type GatewayPool,
@@ -121,6 +122,8 @@ interface PortalContextValue {
   enableUser: (userId: string) => Promise<User>;
   disableUser: (userId: string) => Promise<User>;
   deleteUser: (userId: string) => Promise<void>;
+  approveDevice: (deviceId: string) => Promise<Device>;
+  disconnectDevice: (deviceId: string) => Promise<DeviceDisconnectResponse>;
 }
 
 const STORAGE_KEY = "owlprotect.admin.portal.session";
@@ -681,6 +684,48 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function approveDevice(deviceId: string) {
+    let updated: Device | null = null;
+
+    await runWithPrivilege(`Approve device ${deviceId}`, async () => {
+      updated = await api.post<Device>(`/devices/${deviceId}/approve`);
+      startTransition(() => {
+        setData((current) => ({
+          ...current,
+          devices: updated ? upsertById(current.devices, updated) : current.devices
+        }));
+      });
+    });
+
+    await loadProtectedData("refreshing");
+    return updated!;
+  }
+
+  async function disconnectDevice(deviceId: string) {
+    let response: DeviceDisconnectResponse | null = null;
+
+    await runWithPrivilege(`Disconnect device ${deviceId}`, async () => {
+      response = await api.post<DeviceDisconnectResponse>(`/devices/${deviceId}/disconnect`);
+      startTransition(() => {
+        setData((current) => ({
+          ...current,
+          devices: current.devices.map((device) =>
+            device.id === deviceId
+              ? {
+                  ...device,
+                  connectionState: "AdminDisconnected",
+                  lastSeenUtc: new Date().toISOString()
+                }
+              : device),
+          sessions: current.sessions.filter((session) => session.deviceId !== deviceId)
+        }));
+      });
+    });
+
+    await loadProtectedData("refreshing");
+    return response!;
+  }
+
   async function runAuditRetention() {
     let result: AuditRetentionRunResponse | null = null;
 
@@ -766,6 +811,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   return (
     <PortalContext.Provider
       value={{
+        approveDevice,
         apiBaseUrl,
         authSession,
         bootstrapError,
@@ -779,6 +825,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         deleteGateway,
         deletePolicy,
         deleteUser,
+        disconnectDevice,
         disableUser,
         enableUser,
         enrollBootstrapMfa,

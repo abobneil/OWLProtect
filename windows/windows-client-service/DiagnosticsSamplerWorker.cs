@@ -15,7 +15,7 @@ public sealed class DiagnosticsSamplerWorker(
     LocalPostureCollector postureCollector,
     IOptions<WindowsClientOptions> options) : BackgroundService
 {
-    private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMilliseconds(1500);
     private const int ProbeAttempts = 3;
     private ThroughputSnapshot? _throughputSnapshot;
@@ -31,6 +31,7 @@ public sealed class DiagnosticsSamplerWorker(
                 {
                     var nextStatus = await BuildUpdatedStatusAsync(current, stoppingToken);
                     state.UpdateDiagnostics(nextStatus);
+                    await state.PublishHealthSampleAsync(nextStatus, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {

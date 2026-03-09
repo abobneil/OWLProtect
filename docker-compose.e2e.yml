@@ -1,0 +1,25 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.126.0
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    volumes:
+      - ./observability/e2e-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./artifacts/e2e/otel:/evidence
+    ports:
+      - "${OWLP_OTEL_GRPC_PORT:-4317}:4317"
+      - "${OWLP_OTEL_HTTP_PORT:-4318}:4318"
+    depends_on:
+      - control-plane-api
+
+  control-plane-api:
+    environment:
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-http://otel-collector:4317}
+
+  gateway:
+    environment:
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-http://otel-collector:4317}
+
+  scheduler:
+    environment:
+      Observability__OtlpEndpoint: ${OWLP_OBSERVABILITY_OTLP_ENDPOINT:-http://otel-collector:4317}

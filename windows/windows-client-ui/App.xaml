@@ -4,18 +4,17 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <ResourceDictionary>
-            <Color x:Key="AccentColor">#FF5F33A3</Color>
-            <Color x:Key="SurfaceColor">#FF14111B</Color>
-            <Color x:Key="SurfaceStrongColor">#FF261D34</Color>
-            <Color x:Key="TextColor">#FFF4F2F8</Color>
-            <Color x:Key="MutedTextColor">#FFAA9FBD</Color>
+            <Color x:Key="AccentColor">#FF2A7B66</Color>
+            <Color x:Key="SurfaceColor">#FF0F1619</Color>
+            <Color x:Key="SurfaceStrongColor">#FF172227</Color>
+            <Color x:Key="TextColor">#FFF2F3EF</Color>
+            <Color x:Key="MutedTextColor">#FFA6B3AE</Color>
             <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
             <SolidColorBrush x:Key="SurfaceStrongBrush" Color="{StaticResource SurfaceStrongColor}" />
             <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
             <SolidColorBrush x:Key="MutedTextBrush" Color="{StaticResource MutedTextColor}" />
-            <FontFamily x:Key="AppFontFamily">Roboto</FontFamily>
+            <FontFamily x:Key="AppFontFamily">Bahnschrift</FontFamily>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
-

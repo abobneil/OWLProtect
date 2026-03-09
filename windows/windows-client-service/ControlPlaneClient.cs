@@ -62,6 +62,32 @@ public sealed class ControlPlaneClient(
             accessToken,
             cancellationToken);
 
+    public async Task<ControlPlaneAuthSessionResponse> RefreshSessionAsync(string refreshToken, CancellationToken cancellationToken) =>
+        await PostAsync<RefreshSessionRequest, ControlPlaneAuthSessionResponse>(
+            "auth.session.refresh",
+            ControlPlaneApiConventions.Path("auth/session/refresh"),
+            new RefreshSessionRequest(refreshToken),
+            accessToken: null,
+            cancellationToken);
+
+    public async Task<ControlPlaneClientSessionRevalidationResponse> RevalidateClientSessionAsync(string accessToken, string deviceId, CancellationToken cancellationToken) =>
+        await PostAsync<ClientSessionRevalidationRequest, ControlPlaneClientSessionRevalidationResponse>(
+            "client.session.revalidate",
+            ControlPlaneApiConventions.Path("auth/client/session/revalidate"),
+            new ClientSessionRevalidationRequest(deviceId),
+            accessToken,
+            cancellationToken);
+
+    public async Task SubmitHealthSampleAsync(string accessToken, string deviceId, ClientHealthReport report, CancellationToken cancellationToken) =>
+        await ExecuteAsync(
+            "client.health.submit",
+            HttpMethod.Post,
+            ControlPlaneApiConventions.Path($"auth/client/devices/{deviceId}/health"),
+            report,
+            accessToken,
+            static _ => ValueTask.FromResult(true),
+            cancellationToken);
+
     public async Task RevokeSessionAsync(string accessToken, CancellationToken cancellationToken)
     {
         using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.controlplane.session.revoke");

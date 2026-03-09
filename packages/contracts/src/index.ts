@@ -44,6 +44,7 @@ export type HealthSeverity = "Green" | "Yellow" | "Red";
 export type DiagnosticScope = "Healthy" | "LocalNetwork" | "Gateway" | "ServerSide" | "Policy" | "Authentication";
 
 export type ConnectionState =
+  | "ApprovalPending"
   | "Healthy"
   | "LocalNetworkPoor"
   | "LowBandwidth"
@@ -51,7 +52,8 @@ export type ConnectionState =
   | "GatewayDegraded"
   | "ServerUnavailable"
   | "AuthExpired"
-  | "PolicyBlocked";
+  | "PolicyBlocked"
+  | "AdminDisconnected";
 
 export interface User {
   id: string;
@@ -256,6 +258,19 @@ export interface PostureReport {
   tenantId: string;
   schemaVersion: number;
   collectedAtUtc: string | null;
+}
+
+export interface ClientHealthReport {
+  state: ConnectionState;
+  latencyMs: number;
+  jitterMs: number;
+  packetLossPercent: number;
+  throughputMbps: number;
+  signalStrengthPercent: number;
+  dnsReachable: boolean;
+  routeHealthy: boolean;
+  message: string;
+  sampledAtUtc: string | null;
 }
 
 export interface AuthProviderConfig {
@@ -463,6 +478,26 @@ export interface ClientAuthSessionResponse {
   placement: GatewayPlacement;
 }
 
+export interface ClientSessionRevalidationRequest {
+  deviceId: string;
+}
+
+export interface ClientSessionRevalidationResponse {
+  session: PlatformSession;
+  user: User;
+  device: Device;
+  resolution: PolicyResolutionResult;
+  bundle: ResolvedPolicyBundle;
+  placement: GatewayPlacement;
+  revalidateAfterUtc: string | null;
+}
+
+export interface DeviceDisconnectResponse {
+  deviceId: string;
+  disconnectedSessionCount: number;
+  status: "disconnected";
+}
+
 export interface ApiErrorResponse {
   error: string;
   errorCode: string;
@@ -643,6 +678,21 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
       ].filter(Boolean) as string[];
 
       switch (device.connectionState) {
+        case "ApprovalPending":
+          return asDiagnostic({
+            deviceId: device.id,
+            deviceName: device.name,
+            state: device.connectionState,
+            scope: "Policy",
+            severity: "Yellow",
+            summary: "Device approval is still pending.",
+            detail: "Enrollment completed, but an admin still needs to approve the device before enterprise routes can be enabled.",
+            gatewayId: session?.gatewayId ?? null,
+            gatewayName: gateway?.name ?? null,
+            observedAtUtc: sample?.sampledAtUtc ?? device.lastSeenUtc,
+            signals,
+            tenantId: device.tenantId
+          });
         case "PolicyBlocked":
           return asDiagnostic({
             deviceId: device.id,
@@ -659,14 +709,17 @@ export function buildDeviceDiagnostics(snapshot: DashboardSnapshot): DeviceDiagn
             tenantId: device.tenantId
           });
         case "AuthExpired":
+        case "AdminDisconnected":
           return asDiagnostic({
             deviceId: device.id,
             deviceName: device.name,
             state: device.connectionState,
             scope: "Authentication",
             severity: "Red",
-            summary: "Client authentication expired.",
-            detail: "The device must refresh its client session before the tunnel can be restored.",
+            summary: device.connectionState === "AdminDisconnected" ? "An admin disconnected the device." : "Client authentication expired.",
+            detail: device.connectionState === "AdminDisconnected"
+              ? "The control plane revoked the active client session. The user must reconnect to restore the tunnel."
+              : "The device must refresh its client session before the tunnel can be restored.",
             gatewayId: session?.gatewayId ?? null,
             gatewayName: gateway?.name ?? null,
             observedAtUtc: sample?.sampledAtUtc ?? device.lastSeenUtc,
@@ -767,7 +820,12 @@ export function buildConnectionCityAggregates(snapshot: DashboardSnapshot): Conn
       current.deviceCount += 1;
       if (device.connectionState === "Healthy") {
         current.healthyCount += 1;
-      } else if (device.connectionState === "PolicyBlocked" || device.connectionState === "AuthExpired") {
+      } else if (
+        device.connectionState === "ApprovalPending" ||
+        device.connectionState === "PolicyBlocked" ||
+        device.connectionState === "AuthExpired" ||
+        device.connectionState === "AdminDisconnected"
+      ) {
         current.blockedCount += 1;
       } else {
         current.impactedCount += 1;

@@ -18,6 +18,7 @@ public enum HealthSeverity
 
 public enum ConnectionState
 {
+    ApprovalPending,
     Healthy,
     LocalNetworkPoor,
     LowBandwidth,
@@ -25,7 +26,8 @@ public enum ConnectionState
     GatewayDegraded,
     ServerUnavailable,
     AuthExpired,
-    PolicyBlocked
+    PolicyBlocked,
+    AdminDisconnected
 }
 
 public enum DiagnosticScope

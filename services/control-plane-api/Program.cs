@@ -309,7 +309,7 @@ userSessionGroup.MapPost("/auth/client/devices/{deviceId}/posture", (HttpContext
     revalidationService.RevalidateActiveSessions(identity.Actor, tenantId: updatedDevice.TenantId, deviceId: updatedDevice.Id);
     return Results.Ok(updatedDevice);
 });
-userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSessionIssueRequest request, IDeviceRepository deviceRepository, IPlatformSessionStore sessionStore, SessionRevalidationService revalidationService) =>
+userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSessionIssueRequest request, IDeviceRepository deviceRepository, ISessionRepository sessionRepository, IPlatformSessionStore sessionStore, SessionRevalidationService revalidationService) =>
 {
     var identity = ControlPlaneSecurity.GetIdentity(context)!;
     var user = identity.User!;
@@ -335,19 +335,122 @@ userSessionGroup.MapPost("/auth/client/session", (HttpContext context, ClientSes
     }
 
     var issuedSession = sessionStore.CreateSession(PlatformSessionKind.Client, device.Id, device.Name, role: null);
+    sessionRepository.UpsertSession(BuildTunnelSession(issuedSession.Session.Id, user, device, decision));
     RecordAuthAttempt("client_session_issue", "success");
-    return Results.Ok(new ClientAuthSessionResponse(
-        issuedSession.Session,
-        new SessionTokenPair(
-            issuedSession.AccessToken,
-            issuedSession.Session.AccessTokenExpiresAtUtc,
-            issuedSession.RefreshToken,
-            issuedSession.Session.RefreshTokenExpiresAtUtc),
-        user,
-        device,
-        decision.Resolution!,
-        decision.Bundle!,
-        decision.Placement!));
+    return Results.Ok(BuildClientAuthSessionResponse(issuedSession, user, device, decision));
+});
+api.MapPost("/auth/client/session/revalidate", (HttpContext context, ClientSessionRevalidationRequest request, IUserRepository userRepository, IDeviceRepository deviceRepository, ISessionRepository sessionRepository, SessionRevalidationService revalidationService) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context);
+    if (identity is null)
+    {
+        return Results.Json(new ApiErrorResponse("Authenticated session required.", "authentication_required"), statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    if (identity.Session.Kind != PlatformSessionKind.Client)
+    {
+        return Results.Json(new ApiErrorResponse("Client platform session required.", "client_session_required"), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (!string.Equals(identity.Session.SubjectId, request.DeviceId, StringComparison.Ordinal))
+    {
+        context.RequestServices.GetRequiredService<IAuditWriter>()
+            .WriteAudit(identity.Actor, "client-session-revalidate", "device", request.DeviceId, "failure", $"Client session '{identity.Session.Id}' attempted to revalidate device '{request.DeviceId}' but is bound to '{identity.Session.SubjectId}'.");
+        return Results.Json(new ApiErrorResponse("Device identity does not match the authenticated client session.", "device_identity_mismatch"), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == request.DeviceId);
+    if (device is null)
+    {
+        return NotFound("Device not found.", "device_not_found");
+    }
+
+    var user = userRepository.ListUsers().SingleOrDefault(item => item.Id == device.UserId);
+    if (user is null)
+    {
+        return NotFound("Owning user not found.", "user_not_found");
+    }
+
+    var decision = revalidationService.AuthorizeForClient(user, device);
+    if (!decision.Authorized)
+    {
+        context.RequestServices.GetRequiredService<IAuditWriter>()
+            .WriteAudit(identity.Actor, "client-session-revalidate", "device", request.DeviceId, "failure", decision.Message, device.TenantId);
+        return Results.Json(new ApiErrorResponse(decision.Message, decision.ErrorCode), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var existingSession = sessionRepository.ListSessions().SingleOrDefault(item => item.Id == identity.Session.Id);
+    sessionRepository.UpsertSession(BuildTunnelSession(identity.Session.Id, user, device, decision, existingSession));
+    return Results.Ok(BuildClientSessionRevalidationResponse(identity.Session, user, device, decision));
+});
+api.MapPost("/auth/client/devices/{deviceId}/health", (HttpContext context, string deviceId, ClientHealthReport report, IUserRepository userRepository, IDeviceRepository deviceRepository, ISessionRepository sessionRepository, IHealthSampleRepository healthSampleRepository) =>
+{
+    var identity = ControlPlaneSecurity.GetIdentity(context);
+    if (identity is null)
+    {
+        return Results.Json(new ApiErrorResponse("Authenticated session required.", "authentication_required"), statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    if (identity.Session.Kind != PlatformSessionKind.Client)
+    {
+        return Results.Json(new ApiErrorResponse("Client platform session required.", "client_session_required"), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (!string.Equals(identity.Session.SubjectId, deviceId, StringComparison.Ordinal))
+    {
+        return Results.Json(new ApiErrorResponse("Device identity does not match the authenticated client session.", "device_identity_mismatch"), statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == deviceId);
+    if (device is null)
+    {
+        return NotFound("Device not found.", "device_not_found");
+    }
+
+    var user = userRepository.ListUsers().SingleOrDefault(item => item.Id == device.UserId);
+    if (user is null)
+    {
+        return NotFound("Owning user not found.", "user_not_found");
+    }
+
+    var sampledAtUtc = report.SampledAtUtc ?? DateTimeOffset.UtcNow;
+    var updatedDevice = deviceRepository.UpsertDevice(device with
+    {
+        ConnectionState = report.State,
+        LastSeenUtc = sampledAtUtc
+    });
+    healthSampleRepository.AddHealthSample(new HealthSample(
+        Guid.NewGuid().ToString("n"),
+        updatedDevice.Id,
+        report.State,
+        InferSeverity(report.State, report.PacketLossPercent, report.SignalStrengthPercent),
+        report.LatencyMs,
+        report.JitterMs,
+        report.PacketLossPercent,
+        report.ThroughputMbps,
+        report.SignalStrengthPercent,
+        report.DnsReachable,
+        report.RouteHealthy,
+        sampledAtUtc,
+        string.IsNullOrWhiteSpace(report.Message) ? "Client health sample recorded." : report.Message.Trim(),
+        updatedDevice.TenantId));
+    var existingSession = sessionRepository.ListSessions().SingleOrDefault(item => item.Id == identity.Session.Id);
+    if (existingSession is not null)
+    {
+        sessionRepository.UpsertSession(existingSession with
+        {
+            ThroughputMbps = report.ThroughputMbps,
+            HandshakeAgeSeconds = Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - existingSession.ConnectedAtUtc).TotalSeconds)),
+            AuthorizedAtUtc = existingSession.AuthorizedAtUtc ?? DateTimeOffset.UtcNow
+        });
+    }
+
+    OwlProtectTelemetry.DiagnosticsSamplesRecorded.Add(1, new TagList
+    {
+        { "source", "client-health" },
+        { "tenant_id", updatedDevice.TenantId }
+    });
+    return Results.NoContent();
 });
 
 var bootstrapAdminGroup = api.MapGroup(string.Empty);
@@ -939,6 +1042,34 @@ privilegedAdminGroup.MapPost("/devices/{deviceId}/revoke", (HttpContext context,
     revalidationService.RevalidateActiveSessions(ControlPlaneSecurity.GetIdentity(context)!.Actor, tenantId: updated.TenantId, deviceId: updated.Id);
     return Results.Ok(updated);
 });
+privilegedAdminGroup.MapPost("/devices/{deviceId}/disconnect", (HttpContext context, string deviceId, IDeviceRepository deviceRepository, ISessionRepository sessionRepository, IPlatformSessionStore platformSessionStore) =>
+{
+    var device = deviceRepository.ListDevices().SingleOrDefault(item => item.Id == deviceId);
+    if (device is null)
+    {
+        return NotFound("Device not found.", "device_not_found");
+    }
+
+    var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
+    var disconnectedCount = 0;
+    foreach (var session in sessionRepository.ListSessions().Where(item => string.Equals(item.DeviceId, deviceId, StringComparison.Ordinal)).ToArray())
+    {
+        if (sessionRepository.RevokeSession(session.Id, actor, "Session disconnected by admin."))
+        {
+            disconnectedCount++;
+        }
+    }
+
+    disconnectedCount += platformSessionStore.RevokeSubjectSessions(PlatformSessionKind.Client, deviceId, actor, "Device force-disconnected by admin.");
+    deviceRepository.UpsertDevice(device with
+    {
+        ConnectionState = ConnectionState.AdminDisconnected,
+        LastSeenUtc = DateTimeOffset.UtcNow
+    });
+    context.RequestServices.GetRequiredService<IAuditWriter>()
+        .WriteAudit(actor, "disconnect-device", "device", deviceId, "success", $"Force-disconnected device '{device.Name}' and revoked {disconnectedCount} active session(s).", device.TenantId);
+    return Results.Ok(new DeviceDisconnectResponse(deviceId, disconnectedCount, "disconnected"));
+});
 privilegedAdminGroup.MapDelete("/gateways/{gatewayId}", (string gatewayId, IGatewayRepository gatewayRepository) =>
 {
     if (gatewayRepository.ListGateways().All(gateway => gateway.Id != gatewayId))
@@ -969,14 +1100,16 @@ privilegedAdminGroup.MapDelete("/auth/providers/{providerId}", (HttpContext cont
     var deleted = authProviderConfigRepository.DeleteAuthProvider(providerId, ControlPlaneSecurity.GetIdentity(context)!.Actor);
     return deleted ? Results.NoContent() : NotFound("Auth provider not found.", "auth_provider_not_found");
 });
-privilegedAdminGroup.MapPost("/sessions/{sessionId}/revoke", (HttpContext context, string sessionId, ISessionRepository sessionRepository) =>
+privilegedAdminGroup.MapPost("/sessions/{sessionId}/revoke", (HttpContext context, string sessionId, ISessionRepository sessionRepository, IPlatformSessionStore platformSessionStore) =>
 {
     if (sessionRepository.ListSessions().All(session => session.Id != sessionId))
     {
         return NotFound("Session not found.", "session_not_found");
     }
 
-    var revoked = sessionRepository.RevokeSession(sessionId, ControlPlaneSecurity.GetIdentity(context)!.Actor, "Session revoked by admin.");
+    var actor = ControlPlaneSecurity.GetIdentity(context)!.Actor;
+    var revoked = sessionRepository.RevokeSession(sessionId, actor, "Session revoked by admin.");
+    platformSessionStore.RevokeSession(sessionId, actor, "Session revoked by admin.");
     return revoked ? Results.Ok(new { sessionId, status = "revoked" }) : Results.NotFound();
 });
 privilegedAdminGroup.MapPost("/sessions/revalidate", (HttpContext context, SessionRevalidationService revalidationService, string? tenantId, string? deviceId) =>
@@ -1145,6 +1278,44 @@ static AuthSessionResponse BuildAuthSessionResponse(IssuedPlatformSession issued
         admin,
         user);
 
+static ClientAuthSessionResponse BuildClientAuthSessionResponse(IssuedPlatformSession issuedSession, User user, Device device, SessionAuthorizationDecision decision) =>
+    new(
+        issuedSession.Session,
+        new SessionTokenPair(
+            issuedSession.AccessToken,
+            issuedSession.Session.AccessTokenExpiresAtUtc,
+            issuedSession.RefreshToken,
+            issuedSession.Session.RefreshTokenExpiresAtUtc),
+        user,
+        device,
+        decision.Resolution!,
+        decision.Bundle!,
+        decision.Placement!);
+
+static ClientSessionRevalidationResponse BuildClientSessionRevalidationResponse(PlatformSession session, User user, Device device, SessionAuthorizationDecision decision) =>
+    new(
+        session,
+        user,
+        device,
+        decision.Resolution!,
+        decision.Bundle!,
+        decision.Placement!,
+        decision.RevalidateAfterUtc);
+
+static TunnelSession BuildTunnelSession(string sessionId, User user, Device device, SessionAuthorizationDecision decision, TunnelSession? existingSession = null) =>
+    new(
+        sessionId,
+        user.Id,
+        device.Id,
+        decision.Placement!.GatewayId,
+        existingSession?.ConnectedAtUtc ?? DateTimeOffset.UtcNow,
+        HandshakeAgeSeconds: existingSession is null ? 0 : Math.Max(0, (int)Math.Round((DateTimeOffset.UtcNow - existingSession.ConnectedAtUtc).TotalSeconds)),
+        ThroughputMbps: existingSession?.ThroughputMbps ?? 0,
+        decision.Bundle!.TenantId,
+        decision.Bundle.Version,
+        AuthorizedAtUtc: DateTimeOffset.UtcNow,
+        RevalidateAfterUtc: decision.RevalidateAfterUtc);
+
 static AuthSessionResponse BuildAuthSessionResponseFromStore(IssuedPlatformSession issuedSession, IAdminRepository adminRepository, IUserRepository userRepository)
 {
     var admin = issuedSession.Session.Kind == PlatformSessionKind.Admin
@@ -1167,6 +1338,16 @@ static bool IsKnownProvider(string provider) =>
     string.Equals(provider, "local", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(provider, "entra", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(provider, "oidc", StringComparison.OrdinalIgnoreCase);
+
+static HealthSeverity InferSeverity(ConnectionState state, decimal packetLossPercent, int signalStrengthPercent) =>
+    state switch
+    {
+        ConnectionState.Healthy => HealthSeverity.Green,
+        ConnectionState.ApprovalPending => HealthSeverity.Yellow,
+        ConnectionState.LocalNetworkPoor or ConnectionState.LowBandwidth or ConnectionState.HighJitter or ConnectionState.GatewayDegraded
+            => packetLossPercent >= 20m || signalStrengthPercent < 50 ? HealthSeverity.Red : HealthSeverity.Yellow,
+        _ => HealthSeverity.Red
+    };
 
 static void MapEventStream<TService, TPayload>(
     IEndpointRouteBuilder routes,

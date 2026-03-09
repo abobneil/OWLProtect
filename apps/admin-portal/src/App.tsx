@@ -52,6 +52,32 @@ const registrationStateLabel: Record<DeviceRegistrationState, string> = {
   Revoked: "Revoked"
 };
 
+const connectionStateLabel: Record<DeviceDiagnostics["state"], string> = {
+  AdminDisconnected: "Disconnected by admin",
+  ApprovalPending: "Pending approval",
+  AuthExpired: "Reauthentication required",
+  GatewayDegraded: "Gateway degraded",
+  Healthy: "Connected",
+  HighJitter: "Degraded",
+  LocalNetworkPoor: "Degraded",
+  LowBandwidth: "Degraded",
+  PolicyBlocked: "Policy blocked",
+  ServerUnavailable: "Server unavailable"
+};
+
+const connectionStateTone: Record<DeviceDiagnostics["state"], "green" | "yellow" | "red"> = {
+  AdminDisconnected: "red",
+  ApprovalPending: "yellow",
+  AuthExpired: "red",
+  GatewayDegraded: "yellow",
+  Healthy: "green",
+  HighJitter: "yellow",
+  LocalNetworkPoor: "yellow",
+  LowBandwidth: "yellow",
+  PolicyBlocked: "red",
+  ServerUnavailable: "red"
+};
+
 export function App() {
   return (
     <BrowserRouter>
@@ -447,6 +473,7 @@ function DashboardPage() {
 
 function FleetHealthPage() {
   const portal = usePortal();
+  const diagnosticsByDeviceId = new Map(portal.data.diagnostics.map((diagnostic) => [diagnostic.deviceId, diagnostic]));
 
   return (
     <div className="page-stack">
@@ -484,6 +511,51 @@ function FleetHealthPage() {
           </EntityState>
         </Panel>
       </section>
+
+      <Panel>
+        <SectionHeading eyebrow="Devices" title="Enrollment and live operator actions" detail="Approve pending devices, inspect latest diagnostics, and force-disconnect active clients." />
+        <EntityState emptyMessage="No devices are present." error={portal.dataError} items={portal.data.devices} state={portal.dataState}>
+          <DataTable
+            columns={[
+              { header: "Device", render: (device) => device.name },
+              { header: "User", render: (device) => findUserLabel(portal.data.users, device.userId) },
+              {
+                header: "State",
+                render: (device) => (
+                  <span className={`status-pill status-pill--${connectionStateTone[device.connectionState]}`}>
+                    {connectionStateLabel[device.connectionState]}
+                  </span>
+                )
+              },
+              { header: "Registration", render: (device) => registrationStateLabel[device.registrationState] },
+              { header: "Last seen", render: (device) => formatDateTime(device.lastSeenUtc) },
+              {
+                header: "Diagnostics",
+                render: (device) => diagnosticsByDeviceId.get(device.id)?.summary ?? "No diagnostics yet"
+              },
+              {
+                header: "Actions",
+                render: (device) => (
+                  <div className="table-actions">
+                    <button
+                      className="button button--ghost"
+                      disabled={device.registrationState !== "Pending"}
+                      onClick={() => void portal.approveDevice(device.id)}
+                      type="button"
+                    >
+                      {device.registrationState === "Pending" ? "Approve" : "Approved"}
+                    </button>
+                    <button className="button button--ghost" onClick={() => void portal.disconnectDevice(device.id)} type="button">
+                      Force disconnect
+                    </button>
+                  </div>
+                )
+              }
+            ]}
+            rows={portal.data.devices}
+          />
+        </EntityState>
+      </Panel>
 
       <Panel>
         <SectionHeading eyebrow="Sessions" title="Active tunnel sessions" detail="Privileged revocation requires step-up and updates optimistically." />

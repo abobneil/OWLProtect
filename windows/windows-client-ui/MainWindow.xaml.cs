@@ -1,19 +1,26 @@
-using System.IO.Pipes;
-using System.Text;
-using System.Text.Json;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace OWLProtect.WindowsClientUi;
 
 public sealed partial class MainWindow : Window
 {
-    private const string PipeName = "owlprotect-client";
+    private readonly DispatcherQueueTimer _pollTimer;
 
     public MainWindow()
     {
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         Activated += async (_, _) => await TryLoadStatusAsync();
+        _pollTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _pollTimer.Interval = TimeSpan.FromSeconds(5);
+        _pollTimer.IsRepeating = true;
+        _pollTimer.Tick += async (_, _) => await TryLoadStatusAsync();
+        _pollTimer.Start();
+        Closed += (_, _) => _pollTimer.Stop();
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -45,23 +52,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            await client.ConnectAsync(2000);
-
-            using var reader = new StreamReader(client, Encoding.UTF8, leaveOpen: true);
-            using var writer = new StreamWriter(client, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
-
-            var request = new PipeRequest(PipeProtocol.Version, Guid.NewGuid().ToString("n"), command, silentSsoPreferred);
-            await writer.WriteLineAsync(JsonSerializer.Serialize(request));
-
-            var payload = await reader.ReadLineAsync() ?? string.Empty;
-            var response = JsonSerializer.Deserialize<PipeResponse>(payload);
-            if (response is null)
-            {
-                StatusMessageText.Text = "The Windows service returned an invalid response.";
-                return;
-            }
-
+            var response = await PipeClient.SendCommandAsync(command, silentSsoPreferred);
             ApplyStatus(response.Status);
             if (!response.Success)
             {
@@ -77,6 +68,11 @@ public sealed partial class MainWindow : Window
         {
             StatusMessageText.Text = "The Windows service is not reachable over the named pipe.";
             DiagnosticDetailText.Text = "Start the Windows client service to retrieve enrollment, gateway placement, and diagnostics.";
+            ApplyVisualState(
+                faceColor: ColorHelper.FromArgb(255, 79, 95, 107),
+                eyeColor: ColorHelper.FromArgb(255, 160, 165, 170),
+                connectionLabel: "Disconnected",
+                qualityLabel: "Quality unknown");
         }
     }
 
@@ -113,11 +109,26 @@ public sealed partial class MainWindow : Window
 
         SupportBundleText.Text = $"Support bundle: {status.LastSupportBundlePath ?? "not exported"}";
         TimelineText.Text = $"Recent activity: {JoinOrFallback(status.Timeline)}";
+        var visual = OwlIconRenderer.Describe(status);
+        ApplyVisualState(visual.FaceColor, visual.EyeColor, visual.Label, visual.QualityLabel);
     }
 
     private async Task TryLoadStatusAsync()
     {
         await SendCommandAsync(PipeProtocol.StatusCommand, silentSsoPreferred: true);
+    }
+
+    private void ApplyVisualState(Color faceColor, Color eyeColor, string connectionLabel, string qualityLabel)
+    {
+        OwlFace.Fill = new SolidColorBrush(faceColor);
+        OwlLeftEar.Fill = new SolidColorBrush(faceColor);
+        OwlRightEar.Fill = new SolidColorBrush(faceColor);
+        OwlLeftEye.Fill = new SolidColorBrush(eyeColor);
+        OwlRightEye.Fill = new SolidColorBrush(eyeColor);
+        ConnectionBadge.Background = new SolidColorBrush(faceColor);
+        QualityBadge.Background = new SolidColorBrush(eyeColor);
+        ConnectionBadgeText.Text = connectionLabel;
+        QualityBadgeText.Text = qualityLabel;
     }
 
     private static string JoinOrFallback(IReadOnlyList<string> values) =>

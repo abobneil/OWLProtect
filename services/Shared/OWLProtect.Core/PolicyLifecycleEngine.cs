@@ -20,7 +20,7 @@ public static class PolicyLifecycleEngine
                 Managed: managed,
                 Compliant: false,
                 PostureScore: 0,
-                ConnectionState.PolicyBlocked,
+                ConnectionState.ApprovalPending,
                 LastSeenUtc: now,
                 TenantId: user.TenantId,
                 RegistrationState: DeviceRegistrationState.Pending,
@@ -54,6 +54,16 @@ public static class PolicyLifecycleEngine
             RegisteredAtUtc = existingDevice.RegisteredAtUtc ?? now,
             LastEnrollmentAtUtc = now,
             DisabledAtUtc = null
+        };
+
+        reconciled = reconciled with
+        {
+            ConnectionState = reconciled.RegistrationState == DeviceRegistrationState.Enrolled
+                ? existingDevice.ConnectionState
+                : ConnectionState.ApprovalPending,
+            ComplianceReasons = reconciled.RegistrationState == DeviceRegistrationState.Enrolled
+                ? existingDevice.ComplianceReasons
+                : ["awaiting_enrollment_approval"]
         };
 
         var requiresApproval = reconciled.RegistrationState != DeviceRegistrationState.Enrolled;
@@ -111,7 +121,9 @@ public static class PolicyLifecycleEngine
             Managed = report.Managed,
             Compliant = compliant,
             PostureScore = score,
-            ConnectionState = compliant ? ConnectionState.Healthy : ConnectionState.PolicyBlocked,
+            ConnectionState = device.RegistrationState != DeviceRegistrationState.Enrolled
+                ? ConnectionState.ApprovalPending
+                : compliant ? ConnectionState.Healthy : ConnectionState.PolicyBlocked,
             LastSeenUtc = report.CollectedAtUtc ?? DateTimeOffset.UtcNow,
             OperatingSystem = report.OsVersion.Trim(),
             ComplianceReasons = reasons
