@@ -7,7 +7,7 @@ COPY package*.json ./
 COPY apps/admin-portal/package.json apps/admin-portal/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/theme/package.json packages/theme/package.json
-RUN npm install
+RUN npm install --ignore-scripts
 
 COPY . .
 RUN npm run build --workspace @owlprotect/admin-portal
