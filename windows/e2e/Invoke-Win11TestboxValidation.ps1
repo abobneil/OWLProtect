@@ -10,6 +10,8 @@ param(
     [string]$ArtifactsRoot = "artifacts/e2e/win11-testbox",
     [string]$SilentUsername = "user",
     [string]$InteractiveUsername = "user",
+    [int]$VmwareToolsTimeoutSeconds = 42,
+    [int]$VmwareToolsPollSeconds = 5,
     [int]$GuestValidationTimeoutMinutes = 8,
     [switch]$ConnectClient
 )
@@ -84,17 +86,28 @@ function ConvertTo-EncodedCommand {
 }
 
 function Wait-ToolsRunning {
-    $deadline = (Get-Date).AddMinutes(5)
+    param(
+        [int]$TimeoutSeconds,
+        [int]$PollSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $samples = New-Object System.Collections.Generic.List[string]
     while ((Get-Date) -lt $deadline) {
-        $state = & $VmrunPath -T ws checkToolsState $VmxPath
-        if ($state -match "running") {
+        $state = (& $VmrunPath -T ws checkToolsState $VmxPath 2>&1 | Out-String).Trim()
+        $elapsedSeconds = [math]::Round(($TimeoutSeconds - ($deadline - (Get-Date)).TotalSeconds), 1)
+        $samples.Add(("{0}s={1}" -f $elapsedSeconds, $state))
+        Write-Host ("VMware Tools state after {0}s: {1}" -f $elapsedSeconds, $state)
+
+        if ($state -match "^running$") {
             return
         }
 
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds $PollSeconds
     }
 
-    throw "Timed out waiting for VMware Tools."
+    $observedStates = if ($samples.Count -eq 0) { "none" } else { $samples -join "; " }
+    throw "Timed out waiting for VMware Tools to report 'running' within $TimeoutSeconds second(s). Observed states: $observedStates"
 }
 
 function Wait-GuestFile {
@@ -177,7 +190,7 @@ Get-ChildItem -Path $clientScreenshotsPath -File -ErrorAction SilentlyContinue |
 
 Invoke-Vmrun @("-T", "ws", "revertToSnapshot", $VmxPath, $SnapshotName)
 Invoke-Vmrun @("-T", "ws", "start", $VmxPath, "nogui")
-Wait-ToolsRunning
+Wait-ToolsRunning -TimeoutSeconds $VmwareToolsTimeoutSeconds -PollSeconds $VmwareToolsPollSeconds
 Invoke-Vmrun @("-T", "ws", "enableSharedFolders", $VmxPath, "runtime")
 try {
     Invoke-Vmrun @("-T", "ws", "removeSharedFolder", $VmxPath, "owlprotect-bundle")
