@@ -24,21 +24,21 @@
                     <StackPanel Spacing="10">
                         <TextBlock Text="OWLProtect Client" FontSize="30" FontFamily="{StaticResource AppFontFamily}" Foreground="{StaticResource TextBrush}" />
                         <TextBlock Text="The client maintains a live authorization loop, publishes diagnostics, and surfaces operator-driven disconnects without manual desktop intervention." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
-                        <TextBlock x:Name="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="StatusMessageText" AutomationProperties.AutomationId="StatusMessageText" Text="Disconnected. Silent SSO is available on managed devices." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <Border x:Name="ConnectionBadge" Background="{StaticResource AccentBrush}" CornerRadius="999" Padding="12,6">
-                                <TextBlock x:Name="ConnectionBadgeText" Foreground="{StaticResource TextBrush}" Text="Disconnected" />
+                                <TextBlock x:Name="ConnectionBadgeText" AutomationProperties.AutomationId="ConnectionBadgeText" Foreground="{StaticResource TextBrush}" Text="Disconnected" />
                             </Border>
                             <Border x:Name="QualityBadge" Background="#FF4F5F6B" CornerRadius="999" Padding="12,6">
-                                <TextBlock x:Name="QualityBadgeText" Foreground="{StaticResource TextBrush}" Text="Quality unknown" />
+                                <TextBlock x:Name="QualityBadgeText" AutomationProperties.AutomationId="QualityBadgeText" Foreground="{StaticResource TextBrush}" Text="Quality unknown" />
                             </Border>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <Button x:Name="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
-                            <Button x:Name="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
-                            <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
-                            <Button x:Name="SignOutButton" Content="Sign Out" Click="SignOutButton_Click" />
-                            <Button x:Name="SupportBundleButton" Content="Export Support Bundle" Click="SupportBundleButton_Click" />
+                            <Button x:Name="ConnectButton" AutomationProperties.AutomationId="ConnectButton" Content="Connect with Silent SSO" Click="ConnectButton_Click" />
+                            <Button x:Name="InteractiveButton" AutomationProperties.AutomationId="InteractiveButton" Content="Connect Interactively" Click="InteractiveButton_Click" />
+                            <Button x:Name="DisconnectButton" AutomationProperties.AutomationId="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" />
+                            <Button x:Name="SignOutButton" AutomationProperties.AutomationId="SignOutButton" Content="Sign Out" Click="SignOutButton_Click" />
+                            <Button x:Name="SupportBundleButton" AutomationProperties.AutomationId="SupportBundleButton" Content="Export Support Bundle" Click="SupportBundleButton_Click" />
                         </StackPanel>
                     </StackPanel>
 
@@ -110,7 +110,7 @@
                 <Border Grid.Column="1" Background="{StaticResource SurfaceStrongBrush}" CornerRadius="24" Padding="22">
                     <StackPanel Spacing="10">
                         <TextBlock Text="Support" FontSize="22" Foreground="{StaticResource TextBrush}" />
-                        <TextBlock x:Name="SupportBundleText" Text="Support bundle: not exported" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SupportBundleText" AutomationProperties.AutomationId="SupportBundleText" Text="Support bundle: not exported" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
                         <TextBlock x:Name="TimelineText" Text="Recent activity: waiting for the first tunnel event." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>

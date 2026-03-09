@@ -1,0 +1,49 @@
+{
+  "name": "disconnected",
+  "expectedConnectionLabel": "Disconnected",
+  "connected": false,
+  "deviceName": "Win11-testbox",
+  "username": "Not signed in",
+  "deviceId": "device-disconnected",
+  "currentGateway": "unassigned",
+  "state": "AuthExpired",
+  "diagnosticScope": "Authentication",
+  "userMessage": "Sign in again to establish the tunnel.",
+  "diagnosticDetail": "The client has no active control-plane session.",
+  "authMode": "NotConnected",
+  "recoveryState": "ReauthenticateRequired",
+  "registrationState": "Pending",
+  "enrollmentKind": "Bootstrap",
+  "policyBundleVersion": "unassigned",
+  "routes": [],
+  "dnsZones": [],
+  "ports": [],
+  "failoverGateways": [],
+  "timeline": [
+    "08:00:00 Waiting for authentication before selecting a gateway."
+  ],
+  "latencyMs": 0,
+  "jitterMs": 0,
+  "signalStrengthPercent": 0,
+  "throughputMbps": 0,
+  "accessTokenExpiresAtUtc": null,
+  "revalidateAfterUtc": null,
+  "updatedAtUtc": "2026-03-09T12:00:00Z",
+  "lastErrorCode": "access_token_expired",
+  "lastSupportBundlePath": null,
+  "posture": {
+    "managed": false,
+    "compliant": false,
+    "postureScore": 0,
+    "bitLockerEnabled": false,
+    "defenderHealthy": false,
+    "firewallEnabled": false,
+    "secureBootEnabled": false,
+    "tamperProtectionEnabled": false,
+    "complianceReasons": [
+      "posture_not_collected"
+    ],
+    "operatingSystem": "Windows 11 24H2",
+    "collectedAtUtc": null
+  }
+}

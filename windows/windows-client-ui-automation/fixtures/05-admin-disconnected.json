@@ -1,0 +1,55 @@
+{
+  "name": "admin-disconnected",
+  "expectedConnectionLabel": "Disconnected by admin",
+  "connected": false,
+  "deviceName": "Win11-testbox",
+  "username": "user",
+  "deviceId": "device-admin-disconnected",
+  "currentGateway": "unassigned",
+  "state": "AdminDisconnected",
+  "diagnosticScope": "Authentication",
+  "userMessage": "An administrator disconnected this device.",
+  "diagnosticDetail": "The control plane revoked the active client session.",
+  "authMode": "SilentSso",
+  "recoveryState": "AdminDisconnected",
+  "registrationState": "Enrolled",
+  "enrollmentKind": "Bootstrap",
+  "policyBundleVersion": "bundle-42",
+  "routes": [
+    "10.42.0.0/16"
+  ],
+  "dnsZones": [
+    "corp.owlprotect.test"
+  ],
+  "ports": [
+    443
+  ],
+  "failoverGateways": [
+    "IAD-02"
+  ],
+  "timeline": [
+    "08:04:00 The control plane revoked the active client session."
+  ],
+  "latencyMs": 0,
+  "jitterMs": 0,
+  "signalStrengthPercent": 22,
+  "throughputMbps": 0,
+  "accessTokenExpiresAtUtc": "2026-03-09T13:00:00Z",
+  "revalidateAfterUtc": null,
+  "updatedAtUtc": "2026-03-09T12:04:00Z",
+  "lastErrorCode": "admin_disconnected",
+  "lastSupportBundlePath": "C:\\ProgramData\\OWLProtect\\Support\\admin-disconnected.zip",
+  "posture": {
+    "managed": true,
+    "compliant": true,
+    "postureScore": 100,
+    "bitLockerEnabled": true,
+    "defenderHealthy": true,
+    "firewallEnabled": true,
+    "secureBootEnabled": true,
+    "tamperProtectionEnabled": true,
+    "complianceReasons": [],
+    "operatingSystem": "Windows 11 24H2",
+    "collectedAtUtc": "2026-03-09T12:03:55Z"
+  }
+}

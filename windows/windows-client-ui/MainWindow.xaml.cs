@@ -8,20 +8,42 @@ namespace OWLProtect.WindowsClientUi;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly AppLaunchOptions _options;
     private readonly DispatcherQueueTimer _pollTimer;
 
-    public MainWindow()
+    public MainWindow(AppLaunchOptions options)
     {
+        _options = options;
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
-        Activated += async (_, _) => await TryLoadStatusAsync();
+
+        CurrentStatus = ClientStatusJson.CreateUnavailableStatus();
+        ApplyStatus(CurrentStatus);
+
+        if (_options.IsPreviewMode)
+        {
+            ApplyPreviewMode();
+        }
+        else
+        {
+            Activated += async (_, _) => await TryLoadStatusAsync();
+        }
+
         _pollTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _pollTimer.Interval = TimeSpan.FromSeconds(5);
         _pollTimer.IsRepeating = true;
         _pollTimer.Tick += async (_, _) => await TryLoadStatusAsync();
-        _pollTimer.Start();
+        if (!_options.IsPreviewMode)
+        {
+            _pollTimer.Start();
+        }
+
         Closed += (_, _) => _pollTimer.Stop();
     }
+
+    public ClientStatus CurrentStatus { get; private set; }
+
+    public event EventHandler<ClientStatus>? StatusApplied;
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
     {
@@ -50,6 +72,11 @@ public sealed partial class MainWindow : Window
 
     private async Task SendCommandAsync(string command, bool silentSsoPreferred)
     {
+        if (_options.IsPreviewMode)
+        {
+            return;
+        }
+
         try
         {
             var response = await PipeClient.SendCommandAsync(command, silentSsoPreferred);
@@ -66,18 +93,13 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception)
         {
-            StatusMessageText.Text = "The Windows service is not reachable over the named pipe.";
-            DiagnosticDetailText.Text = "Start the Windows client service to retrieve enrollment, gateway placement, and diagnostics.";
-            ApplyVisualState(
-                faceColor: ColorHelper.FromArgb(255, 79, 95, 107),
-                eyeColor: ColorHelper.FromArgb(255, 160, 165, 170),
-                connectionLabel: "Disconnected",
-                qualityLabel: "Quality unknown");
+            ApplyStatus(ClientStatusJson.CreateUnavailableStatus());
         }
     }
 
     private void ApplyStatus(ClientStatus status)
     {
+        CurrentStatus = status;
         StatusMessageText.Text = status.UserMessage;
         IdentityText.Text = $"User: {status.Username}";
         DeviceText.Text = $"Device: {status.DeviceName} ({status.DeviceId})";
@@ -111,10 +133,16 @@ public sealed partial class MainWindow : Window
         TimelineText.Text = $"Recent activity: {JoinOrFallback(status.Timeline)}";
         var visual = OwlIconRenderer.Describe(status);
         ApplyVisualState(visual.FaceColor, visual.EyeColor, visual.Label, visual.QualityLabel);
+        StatusApplied?.Invoke(this, status);
     }
 
     private async Task TryLoadStatusAsync()
     {
+        if (_options.IsPreviewMode)
+        {
+            return;
+        }
+
         await SendCommandAsync(PipeProtocol.StatusCommand, silentSsoPreferred: true);
     }
 
@@ -138,4 +166,18 @@ public sealed partial class MainWindow : Window
         value is null ? "--" : value.Value.LocalDateTime.ToString("g");
 
     private static string YesNo(bool value) => value ? "yes" : "no";
+
+    private void ApplyPreviewMode()
+    {
+        ConnectButton.IsEnabled = false;
+        InteractiveButton.IsEnabled = false;
+        DisconnectButton.IsEnabled = false;
+        SignOutButton.IsEnabled = false;
+        SupportBundleButton.IsEnabled = false;
+
+        if (!string.IsNullOrWhiteSpace(_options.PreviewStatusPath))
+        {
+            ApplyStatus(ClientStatusJson.LoadFromFile(_options.PreviewStatusPath));
+        }
+    }
 }

@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $startupShortcutPath = Join-Path $env:ProgramData "Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\OWLProtect Client.lnk"
+Get-Process -Name "OWLProtect.WindowsClientTray" -ErrorAction SilentlyContinue | Stop-Process -Force
 $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $existingService) {
     if ($existingService.Status -ne "Stopped") {

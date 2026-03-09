@@ -13,7 +13,8 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
+        var options = AppLaunchOptions.Parse(Environment.GetCommandLineArgs().Skip(1));
+        _window = new MainWindow(options);
         _window.Activate();
     }
 }

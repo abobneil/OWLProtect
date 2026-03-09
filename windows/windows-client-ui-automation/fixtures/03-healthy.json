@@ -1,0 +1,57 @@
+{
+  "name": "healthy",
+  "expectedConnectionLabel": "Connected",
+  "connected": true,
+  "deviceName": "Win11-testbox",
+  "username": "user",
+  "deviceId": "device-healthy",
+  "currentGateway": "JFK-01",
+  "state": "Healthy",
+  "diagnosticScope": "Healthy",
+  "userMessage": "Silent SSO complete. Gateway 'JFK-01' is active.",
+  "diagnosticDetail": "Device 'Win11-testbox' is Enrolled. Policy bundle 'bundle-42' routes 2 CIDRs and 1 DNS zone through JFK-01.",
+  "authMode": "SilentSso",
+  "recoveryState": "Connected",
+  "registrationState": "Enrolled",
+  "enrollmentKind": "Bootstrap",
+  "policyBundleVersion": "bundle-42",
+  "routes": [
+    "10.42.0.0/16",
+    "10.99.0.0/16"
+  ],
+  "dnsZones": [
+    "corp.owlprotect.test"
+  ],
+  "ports": [
+    53,
+    443
+  ],
+  "failoverGateways": [
+    "IAD-02"
+  ],
+  "timeline": [
+    "08:02:00 Connected via silent sso and selected JFK-01."
+  ],
+  "latencyMs": 18,
+  "jitterMs": 3,
+  "signalStrengthPercent": 92,
+  "throughputMbps": 165,
+  "accessTokenExpiresAtUtc": "2026-03-09T13:00:00Z",
+  "revalidateAfterUtc": "2026-03-09T12:30:00Z",
+  "updatedAtUtc": "2026-03-09T12:02:00Z",
+  "lastErrorCode": null,
+  "lastSupportBundlePath": "C:\\ProgramData\\OWLProtect\\Support\\healthy.zip",
+  "posture": {
+    "managed": true,
+    "compliant": true,
+    "postureScore": 100,
+    "bitLockerEnabled": true,
+    "defenderHealthy": true,
+    "firewallEnabled": true,
+    "secureBootEnabled": true,
+    "tamperProtectionEnabled": true,
+    "complianceReasons": [],
+    "operatingSystem": "Windows 11 24H2",
+    "collectedAtUtc": "2026-03-09T12:01:55Z"
+  }
+}

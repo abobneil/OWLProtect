@@ -1,0 +1,55 @@
+{
+  "name": "degraded",
+  "expectedConnectionLabel": "Degraded",
+  "connected": true,
+  "deviceName": "Win11-testbox",
+  "username": "user",
+  "deviceId": "device-degraded",
+  "currentGateway": "JFK-01",
+  "state": "GatewayDegraded",
+  "diagnosticScope": "Gateway",
+  "userMessage": "Gateway 'JFK-01' is active, but performance is degraded.",
+  "diagnosticDetail": "The tunnel is established, but the selected gateway is reporting degraded health or elevated latency.",
+  "authMode": "SilentSso",
+  "recoveryState": "Connected",
+  "registrationState": "Enrolled",
+  "enrollmentKind": "Bootstrap",
+  "policyBundleVersion": "bundle-42",
+  "routes": [
+    "10.42.0.0/16"
+  ],
+  "dnsZones": [
+    "corp.owlprotect.test"
+  ],
+  "ports": [
+    443
+  ],
+  "failoverGateways": [
+    "IAD-02"
+  ],
+  "timeline": [
+    "08:03:00 Diagnostics reported elevated latency through JFK-01."
+  ],
+  "latencyMs": 184,
+  "jitterMs": 51,
+  "signalStrengthPercent": 58,
+  "throughputMbps": 37,
+  "accessTokenExpiresAtUtc": "2026-03-09T13:00:00Z",
+  "revalidateAfterUtc": "2026-03-09T12:30:00Z",
+  "updatedAtUtc": "2026-03-09T12:03:00Z",
+  "lastErrorCode": null,
+  "lastSupportBundlePath": "C:\\ProgramData\\OWLProtect\\Support\\degraded.zip",
+  "posture": {
+    "managed": true,
+    "compliant": true,
+    "postureScore": 100,
+    "bitLockerEnabled": true,
+    "defenderHealthy": true,
+    "firewallEnabled": true,
+    "secureBootEnabled": true,
+    "tamperProtectionEnabled": true,
+    "complianceReasons": [],
+    "operatingSystem": "Windows 11 24H2",
+    "collectedAtUtc": "2026-03-09T12:02:55Z"
+  }
+}

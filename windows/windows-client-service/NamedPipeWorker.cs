@@ -1,6 +1,8 @@
 using System.IO.Pipes;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using OWLProtect.Core;
@@ -22,7 +24,15 @@ public sealed class PipeProtocolServer(
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            using var pipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            using var pipe = NamedPipeServerStreamAcl.Create(
+                PipeName,
+                PipeDirection.InOut,
+                NamedPipeServerStream.MaxAllowedServerInstances,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous,
+                0,
+                0,
+                CreatePipeSecurity());
             await pipe.WaitForConnectionAsync(cancellationToken);
 
             using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
@@ -138,5 +148,23 @@ public sealed class PipeProtocolServer(
             success: false,
             errorCode: "unknown_command",
             errorMessage: $"'{request.Command}' is not a supported client command.");
+    }
+
+    private static PipeSecurity CreatePipeSecurity()
+    {
+        var pipeSecurity = new PipeSecurity();
+        pipeSecurity.SetAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+            PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+            AccessControlType.Allow));
+        return pipeSecurity;
     }
 }
