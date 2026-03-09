@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Primitives;
 using OWLProtect.Core;
 
 namespace OWLProtect.ControlPlane.Api;
@@ -22,6 +23,7 @@ internal sealed record AuthorizationFailure(
 internal static class ControlPlaneSecurity
 {
     private const string IdentityItemKey = "owlprotect.identity";
+    private const string WebSocketAuthProtocolPrefix = "owlprotect.auth.";
 
     public static void AttachIdentity(HttpContext httpContext)
     {
@@ -216,7 +218,28 @@ internal static class ControlPlaneSecurity
             return authorizationHeader["Bearer ".Length..].Trim();
         }
 
-        return httpContext.Request.Query["access_token"].ToString();
+        return ReadAccessTokenFromWebSocketProtocols(httpContext.Request.Headers["Sec-WebSocket-Protocol"]);
+    }
+
+    private static string? ReadAccessTokenFromWebSocketProtocols(StringValues requestedProtocols)
+    {
+        foreach (var headerValue in requestedProtocols)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue))
+            {
+                continue;
+            }
+
+            foreach (var rawProtocol in headerValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (rawProtocol.StartsWith(WebSocketAuthProtocolPrefix, StringComparison.Ordinal))
+                {
+                    return rawProtocol[WebSocketAuthProtocolPrefix.Length..];
+                }
+            }
+        }
+
+        return null;
     }
 
     private static void AuditFailure(HttpContext httpContext, string policyName, AuthorizationFailure failure)

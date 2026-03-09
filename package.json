@@ -12,11 +12,14 @@
     "lint": "npm run lint --workspaces --if-present",
     "package:containers": "node ./scripts/run-powershell.mjs ./scripts/package-containers.ps1",
     "package:windows": "node ./scripts/run-powershell.mjs ./scripts/package-windows-client.ps1",
+    "prepare": "node ./scripts/setup-git-hooks.mjs",
     "rehearse:recovery": "node ./scripts/run-powershell.mjs ./scripts/rehearse-recovery.ps1",
+    "setup:hooks": "node ./scripts/setup-git-hooks.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "validate:foundation": "node ./scripts/validate-foundation.mjs",
     "validate:release-smoke": "node ./scripts/release-smoke.mjs",
+    "validate:secrets": "node ./scripts/secret-scan.mjs --mode=repo",
     "validate:security": "node ./scripts/run-powershell.mjs ./scripts/check-dependencies.ps1",
     "validate:services": "node ./scripts/run-powershell.mjs ./scripts/build-services.ps1"
   }

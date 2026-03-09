@@ -43,6 +43,9 @@ jobs:
       - name: Validate foundation conventions
         run: npm run validate:foundation
 
+      - name: Secret scan
+        run: npm run validate:secrets
+
       - name: Build service projects
         run: npm run validate:services
 

@@ -16,12 +16,15 @@ Install the repository dependencies from the root:
 npm ci
 ```
 
+`npm ci` configures the repository-managed git hooks in `.githooks` for this clone. If you need to reapply them manually, run `npm run setup:hooks`.
+
 Use these baseline validation commands before opening a pull request:
 
 ```bash
 npm run typecheck
 npm run build
 npm run validate:foundation
+npm run validate:secrets
 npm run validate:services
 ```
 

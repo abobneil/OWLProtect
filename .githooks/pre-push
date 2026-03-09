@@ -1,0 +1,2 @@
+#!/bin/sh
+node ./scripts/secret-scan.mjs --mode=pre-push --remote-name="$1" --remote-url="$2"

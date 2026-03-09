@@ -34,9 +34,8 @@ internal sealed class ConfigurationBootstrapAdminCredentialsProvider(
         {
             var generatedPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
             logger.LogWarning(
-                "Generated an ephemeral bootstrap admin password because no configured secret source was available. Username: {Username}. Password: {Password}",
-                username,
-                generatedPassword);
+                "Generated an ephemeral bootstrap admin password because no configured secret source was available. Username: {Username}. The password is intentionally not logged.",
+                username);
             return new BootstrapAdminCredentials(username, PasswordProtector.Hash(generatedPassword));
         }
 

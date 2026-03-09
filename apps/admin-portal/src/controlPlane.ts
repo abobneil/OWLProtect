@@ -6,6 +6,8 @@ import {
 } from "@owlprotect/contracts";
 
 const DEFAULT_CONTROL_PLANE_PORT = "5180";
+const CONTROL_PLANE_STREAM_PROTOCOL = "owlprotect.admin-stream.v1";
+const CONTROL_PLANE_AUTH_PROTOCOL_PREFIX = "owlprotect.auth.";
 
 export interface StoredAdminSession extends AuthSessionResponse {
   admin: NonNullable<AuthSessionResponse["admin"]>;
@@ -167,12 +169,14 @@ export function connectControlPlaneStream<TFrame>({
   onOpen
 }: StreamConnectionOptions<TFrame>) {
   const url = new URL(path, toSocketBaseUrl(resolveControlPlaneBaseUrl()));
-  url.searchParams.set("access_token", accessToken);
   if (afterSequence && afterSequence > 0) {
     url.searchParams.set("afterSequence", `${afterSequence}`);
   }
 
-  const socket = new WebSocket(url);
+  const socket = new WebSocket(url, [
+    CONTROL_PLANE_STREAM_PROTOCOL,
+    `${CONTROL_PLANE_AUTH_PROTOCOL_PREFIX}${accessToken}`
+  ]);
   socket.addEventListener("open", onOpen);
   socket.addEventListener("message", (event) => {
     onFrame(JSON.parse(event.data) as TFrame);

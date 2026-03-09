@@ -38,6 +38,9 @@ jobs:
       - name: Validate foundation conventions
         run: npm run validate:foundation
 
+      - name: Secret scan
+        run: npm run validate:secrets
+
   docker-build:
     name: Docker Build (${{ matrix.target.name }})
     runs-on: ubuntu-latest

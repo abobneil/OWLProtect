@@ -1216,7 +1216,10 @@ static void MapEventStream<TService, TPayload>(
             afterSequence = parsedAfterSequence;
         }
 
-        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        var selectedSubProtocol = ResolveWebSocketSubProtocol(context);
+        using var socket = selectedSubProtocol is null
+            ? await context.WebSockets.AcceptWebSocketAsync()
+            : await context.WebSockets.AcceptWebSocketAsync(selectedSubProtocol);
         OwlProtectTelemetry.EventStreamConnections.Add(1, new TagList { { "topic", topic } });
         using var subscription = eventStream.Subscribe(topic);
         try
@@ -1291,6 +1294,19 @@ static async Task SendFrameAsync(WebSocket socket, ControlPlaneStreamFrame frame
 {
     var payload = JsonSerializer.SerializeToUtf8Bytes(frame);
     await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+}
+
+static string? ResolveWebSocketSubProtocol(HttpContext context)
+{
+    foreach (var protocol in context.WebSockets.WebSocketRequestedProtocols)
+    {
+        if (!protocol.StartsWith("owlprotect.auth.", StringComparison.Ordinal))
+        {
+            return protocol;
+        }
+    }
+
+    return null;
 }
 
 static void RecordAuthAttempt(string flow, string outcome, string? providerId = null)

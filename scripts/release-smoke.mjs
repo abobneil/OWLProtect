@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 const config = {
   controlPlaneBaseUrl: process.env.OWLP_RELEASE_SMOKE_CONTROL_PLANE_URL ?? "http://127.0.0.1:5180",
@@ -6,7 +6,7 @@ const config = {
   schedulerBaseUrl: process.env.OWLP_RELEASE_SMOKE_SCHEDULER_URL ?? "http://127.0.0.1:5182",
   adminUsername: process.env.OWLP_RELEASE_SMOKE_ADMIN_USERNAME ?? "admin",
   adminPassword: process.env.OWLP_RELEASE_SMOKE_ADMIN_PASSWORD ?? "change-local-bootstrap-admin-password",
-  newAdminPassword: process.env.OWLP_RELEASE_SMOKE_ADMIN_NEW_PASSWORD ?? "ReleaseReadiness!234",
+  newAdminPassword: process.env.OWLP_RELEASE_SMOKE_ADMIN_NEW_PASSWORD ?? createGeneratedPassword("release-readiness"),
   timeoutMs: Number(process.env.OWLP_RELEASE_SMOKE_TIMEOUT_MS ?? 10000)
 };
 
@@ -16,6 +16,10 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function createGeneratedPassword(prefix) {
+  return `${prefix}-${randomBytes(12).toString("base64url")}!A1`;
 }
 
 function percentile(values, target) {
@@ -251,13 +255,14 @@ async function main() {
   requireCorrelationHeader(deviceDiagnostics, "device diagnostics");
 
   const tempAdminUsername = `readonly-${randomUUID().slice(0, 8)}`;
+  const tempAdminPassword = createGeneratedPassword("readonly-admin");
   const createdAdmin = await request(`${controlPlaneApi}/admins`, {
     method: "POST",
     token: adminToken,
     body: {
       id: null,
       username: tempAdminUsername,
-      password: "TempAdmin!234",
+      password: tempAdminPassword,
       role: "ReadOnly",
       mustChangePassword: false,
       mfaEnrolled: true

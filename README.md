@@ -22,6 +22,8 @@ OWLProtect is a Windows-first enterprise VPN platform with:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local validation commands, pull request expectations, CODEOWNERS review guidance, and the backlog label taxonomy.
 
+Repository-managed git hooks under `.githooks` run a secret scan before commit and push after `npm ci` or `npm run setup:hooks`.
+
 See [docs/foundation/contracts-versioning-and-config.md](docs/foundation/contracts-versioning-and-config.md) for the current shared contract, API versioning, and environment configuration conventions.
 
 See [docs/security/secret-management-and-rotation.md](docs/security/secret-management-and-rotation.md) for the current bootstrap secret-loading and rotation guidance.
