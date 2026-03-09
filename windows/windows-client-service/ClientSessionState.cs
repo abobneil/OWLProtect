@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text;
 using Microsoft.Extensions.Options;
 using OWLProtect.Core;
@@ -37,11 +39,18 @@ public sealed class ClientSessionState(
     public async Task<ClientStatus> ConnectAsync(bool silentSsoPreferred, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
+        var start = Stopwatch.GetTimestamp();
+        var outcome = "success";
+        var authMode = "unknown";
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.connect");
+        activity?.SetTag("owlprotect.client.silent_sso_preferred", silentSsoPreferred);
         try
         {
             AppendStatusTimeline($"Beginning {(silentSsoPreferred ? "silent SSO" : "interactive")} connect workflow.");
 
             var authSession = await authBroker.AuthenticateAsync(silentSsoPreferred, cancellationToken);
+            authMode = authSession.Mode;
+            activity?.SetTag("owlprotect.auth.mode", authSession.Mode);
             var authResponse = authSession.Response;
             _tokens = authResponse.Tokens;
             _platformSession = authResponse.Session;
@@ -108,15 +117,26 @@ public sealed class ClientSessionState(
                 Posture = posture.Status
             });
 
+            activity?.SetTag("owlprotect.client.gateway", clientSession.Placement.GatewayName);
+            activity?.SetTag("owlprotect.client.connection_state", ConnectionState.Healthy.ToString());
             return _status;
         }
         catch (Exception exception)
         {
+            outcome = exception is ControlPlaneApiException apiException ? apiException.ErrorCode : "failure";
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             HandleConnectionFailure(exception);
             return _status;
         }
         finally
         {
+            var tags = new TagList
+            {
+                { "outcome", outcome },
+                { "auth_mode", authMode }
+            };
+            OwlProtectTelemetry.ClientConnectAttempts.Add(1, tags);
+            OwlProtectTelemetry.ClientConnectDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds, tags);
             _gate.Release();
         }
     }
@@ -124,6 +144,7 @@ public sealed class ClientSessionState(
     public async Task<ClientStatus> DisconnectAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.disconnect");
         try
         {
             UpdateStatus(status => status with
@@ -151,6 +172,7 @@ public sealed class ClientSessionState(
     public async Task<ClientStatus> SignOutAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.sign_out");
         try
         {
             if (!string.IsNullOrWhiteSpace(_tokens?.AccessToken))
@@ -181,6 +203,7 @@ public sealed class ClientSessionState(
     public async Task<(ClientStatus Status, string ExportPath)> ExportSupportBundleAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.support_bundle.export");
         try
         {
             var path = await supportBundleExporter.ExportAsync(_status, cancellationToken);
@@ -191,6 +214,7 @@ public sealed class ClientSessionState(
                 UpdatedAtUtc = DateTimeOffset.UtcNow
             });
 
+            OwlProtectTelemetry.ClientSupportBundleExports.Add(1);
             return (_status, path);
         }
         finally

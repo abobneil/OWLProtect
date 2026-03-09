@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -48,6 +49,7 @@ public sealed class DiagnosticsSamplerWorker(
 
     private async Task<ClientStatus> BuildUpdatedStatusAsync(ClientStatus current, CancellationToken cancellationToken)
     {
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.diagnostics.sample");
         var posture = postureCollector.Collect(current.DeviceId).Status;
         var measurement = await MeasureConnectivityAsync(cancellationToken);
         var preserveRecoveryNarrative = !string.Equals(current.RecoveryState, "Connected", StringComparison.Ordinal);
@@ -62,6 +64,22 @@ public sealed class DiagnosticsSamplerWorker(
         {
             timeline = AppendTimeline(timeline, $"{DateTimeOffset.UtcNow:HH:mm:ss} Diagnostics moved to {nextState} ({measurement.LatencyMs} ms latency, {measurement.JitterMs} ms jitter).");
         }
+
+        activity?.SetTag("owlprotect.client.connection_state", nextState.ToString());
+        activity?.SetTag("owlprotect.client.route_healthy", measurement.RouteHealthy);
+        OwlProtectTelemetry.ClientDiagnosticsSamples.Add(1, new TagList
+        {
+            { "state", nextState.ToString() },
+            { "route_healthy", measurement.RouteHealthy }
+        });
+        OwlProtectTelemetry.ClientNetworkLatency.Record(measurement.LatencyMs, new TagList
+        {
+            { "state", nextState.ToString() }
+        });
+        OwlProtectTelemetry.ClientNetworkPacketLoss.Record((double)measurement.PacketLossPercent, new TagList
+        {
+            { "state", nextState.ToString() }
+        });
 
         return current with
         {

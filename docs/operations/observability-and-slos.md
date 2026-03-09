@@ -19,8 +19,13 @@ This document defines the current observability contract for OWLProtect self-hos
   - `GET /health/ready`
   - `GET /metrics`
   - `GET /diagnostics`
+- Windows client service:
+  - OTLP metrics and traces when `Observability__OtlpEndpoint` is configured
+  - `status` over the `owlprotect-client` named pipe for the current local session and recovery state
+  - `support-bundle` over the `owlprotect-client` named pipe for operator-facing diagnostic capture
 
 Every HTTP service also returns `X-Correlation-ID` on responses. The control plane derives a separate non-secret session correlation ID from the platform session and adds it to request logs and traces.
+The Windows client service now propagates `X-Correlation-ID` on control-plane calls so client-side traces can be joined with control-plane request logs.
 
 ## Logging Model and Redaction
 
@@ -46,14 +51,27 @@ Custom service metrics now cover:
 - `owlprotect.gateway.heartbeat_publish.duration`
 - `owlprotect.scheduler.cycles`
 - `owlprotect.eventstream.connections`
+- `owlprotect.client.connect.attempts`
+- `owlprotect.client.connect.duration`
+- `owlprotect.client.controlplane.calls`
+- `owlprotect.client.controlplane.call.duration`
+- `owlprotect.client.posture.collections`
+- `owlprotect.client.posture.score`
+- `owlprotect.client.diagnostics.samples`
+- `owlprotect.client.network.latency`
+- `owlprotect.client.network.packet_loss`
+- `owlprotect.client.ipc.requests`
+- `owlprotect.client.ipc.request.duration`
+- `owlprotect.client.support_bundle.exports`
 
-The services also emit standard ASP.NET Core, HttpClient, process, and runtime telemetry through OpenTelemetry. Configure OTLP export with:
+The HTTP services also emit standard ASP.NET Core telemetry, and all instrumented services emit HttpClient, process, and runtime telemetry through OpenTelemetry. Configure OTLP export with:
 
 - `Observability__OtlpEndpoint`
 - `Observability__OtlpProtocol`
 - `Observability__ServiceNamespace`
 
 Prometheus scraping is enabled by default on `/metrics`.
+The Windows client service is a worker process rather than an HTTP endpoint, so its telemetry is exported through OTLP rather than a local Prometheus scrape endpoint.
 
 ## Alert Rules
 
@@ -87,6 +105,11 @@ Recommended dashboard panels:
    - `sum(increase(owlprotect_audit_retention_exported_events_total[24h]))`
 6. Streaming:
    - `max_over_time(owlprotect_eventstream_connections[15m])`
+7. Windows client:
+   - `sum by (outcome, auth_mode) (increase(owlprotect_client_connect_attempts_total[15m]))`
+   - `histogram_quantile(0.95, sum by (le) (rate(owlprotect_client_connect_duration_milliseconds_bucket[15m])))`
+   - `sum by (operation, outcome) (increase(owlprotect_client_controlplane_calls_total[15m]))`
+   - `histogram_quantile(0.95, sum by (le) (rate(owlprotect_client_network_latency_milliseconds_bucket[15m])))`
 
 ## Service-Level Objectives
 
@@ -104,6 +127,9 @@ Current SLO targets:
   - 99.9 percent of scheduled revalidation cycles complete within 2 minutes
 - Audit retention:
   - 99 percent of daily retention jobs finish within the configured check interval plus 1 hour
+- Windows client connect workflow:
+  - 99.5 percent of connect attempts complete successfully when the configured control plane and identity provider are healthy
+  - p95 end-to-end connect latency under 5 seconds in a single-region deployment with a reachable control plane
 
 ## Error Budgets
 
@@ -111,6 +137,7 @@ Current SLO targets:
 - 99.5 percent monthly success leaves 3 hours 39 minutes of budget per month.
 - Consuming more than 25 percent of a monthly budget in seven days should pause non-emergency feature releases until the cause is understood.
 - Consuming more than 50 percent of a monthly budget in seven days should require rollback or forward-fix approval from the on-call operator and repository maintainer.
+- Apply the 99.5 percent budget to Windows client connect failures only when the control plane and identity provider are healthy enough to attribute the fault to OWLProtect.
 
 ## Performance Baselines
 
@@ -123,6 +150,9 @@ These baselines guide upgrade validation:
   - publish a heartbeat every 10 seconds with p95 publish latency below 250 ms to the control plane
 - Scheduler:
   - complete the seeded test-user maintenance cycle in under 5 seconds when no action is required
+- Windows client service:
+  - complete the connect workflow, including auth, enrollment, posture upload, and client-session issue, within 5 seconds p95 on a healthy local network
+  - answer `status` over the named pipe in under 250 ms p95 and export a support bundle in under 2 seconds p95
 - PostgreSQL:
   - health and bootstrap queries should stay below 100 ms p95 under normal single-node load
 

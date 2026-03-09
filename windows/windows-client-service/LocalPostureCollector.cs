@@ -1,5 +1,7 @@
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Options;
 using Microsoft.Win32;
 using OWLProtect.Core;
@@ -12,6 +14,8 @@ public sealed class LocalPostureCollector(
 {
     public PostureCollectionResult Collect(string deviceId)
     {
+        using var activity = OwlProtectTelemetry.ActivitySource.StartActivity("windowsclient.posture.collect");
+
         var managed = DetectManagedDevice();
         var firewallEnabled = ReadFirewallEnabled();
         var secureBootEnabled = ReadRegistryDword(
@@ -65,6 +69,18 @@ public sealed class LocalPostureCollector(
             score,
             compliant,
             managed);
+
+        activity?.SetTag("owlprotect.client.posture.compliant", compliant);
+        activity?.SetTag("owlprotect.client.posture.managed", managed);
+        OwlProtectTelemetry.ClientPostureCollections.Add(1, new TagList
+        {
+            { "compliant", compliant },
+            { "managed", managed }
+        });
+        OwlProtectTelemetry.ClientPostureScore.Record(score, new TagList
+        {
+            { "compliant", compliant }
+        });
 
         return new PostureCollectionResult(postureReport, postureStatus);
     }

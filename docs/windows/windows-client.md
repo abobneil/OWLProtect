@@ -35,6 +35,9 @@ The Windows service reads the `WindowsClient` configuration section. The most us
 - `WindowsClient__InteractiveProviderToken`
 - `WindowsClient__InteractiveUsername`
 - `WindowsClient__SupportBundleDirectory`
+- `Observability__OtlpEndpoint`
+- `Observability__OtlpProtocol`
+- `Observability__ServiceNamespace`
 
 ## Posture Collection
 
@@ -59,6 +62,13 @@ The client computes a posture score, derives compliance reasons, and surfaces bo
 ## Support Bundles
 
 `support-bundle` exports the current client status, posture snapshot, recovery state, and recent timeline to the configured support bundle directory as JSON.
+
+## Observability
+
+- The Windows client service now emits OpenTelemetry traces and metrics for connect attempts, control-plane calls, posture collection, diagnostics sampling, named-pipe requests, and support-bundle exports.
+- Client-to-control-plane HTTP calls propagate `X-Correlation-ID` so local workflow traces can be joined with control-plane request logs.
+- Because the client runs as a worker service rather than an HTTP server, it exports telemetry through OTLP when `Observability__OtlpEndpoint` is configured instead of exposing a local `/metrics` endpoint.
+- `status` and `support-bundle` remain the operator-facing local diagnostics surface when OTLP is unavailable.
 
 ## Packaging
 

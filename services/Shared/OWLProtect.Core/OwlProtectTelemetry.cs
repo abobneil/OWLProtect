@@ -23,4 +23,16 @@ public static class OwlProtectTelemetry
     public static readonly Histogram<double> GatewayHeartbeatPublishDuration = Meter.CreateHistogram<double>("owlprotect.gateway.heartbeat_publish.duration", unit: "ms");
     public static readonly Counter<long> SchedulerCycles = Meter.CreateCounter<long>("owlprotect.scheduler.cycles");
     public static readonly UpDownCounter<long> EventStreamConnections = Meter.CreateUpDownCounter<long>("owlprotect.eventstream.connections");
+    public static readonly Counter<long> ClientConnectAttempts = Meter.CreateCounter<long>("owlprotect.client.connect.attempts");
+    public static readonly Histogram<double> ClientConnectDuration = Meter.CreateHistogram<double>("owlprotect.client.connect.duration", unit: "ms");
+    public static readonly Counter<long> ClientControlPlaneCalls = Meter.CreateCounter<long>("owlprotect.client.controlplane.calls");
+    public static readonly Histogram<double> ClientControlPlaneCallDuration = Meter.CreateHistogram<double>("owlprotect.client.controlplane.call.duration", unit: "ms");
+    public static readonly Counter<long> ClientPostureCollections = Meter.CreateCounter<long>("owlprotect.client.posture.collections");
+    public static readonly Histogram<double> ClientPostureScore = Meter.CreateHistogram<double>("owlprotect.client.posture.score");
+    public static readonly Counter<long> ClientDiagnosticsSamples = Meter.CreateCounter<long>("owlprotect.client.diagnostics.samples");
+    public static readonly Histogram<double> ClientNetworkLatency = Meter.CreateHistogram<double>("owlprotect.client.network.latency", unit: "ms");
+    public static readonly Histogram<double> ClientNetworkPacketLoss = Meter.CreateHistogram<double>("owlprotect.client.network.packet_loss", unit: "%");
+    public static readonly Counter<long> ClientIpcRequests = Meter.CreateCounter<long>("owlprotect.client.ipc.requests");
+    public static readonly Histogram<double> ClientIpcRequestDuration = Meter.CreateHistogram<double>("owlprotect.client.ipc.request.duration", unit: "ms");
+    public static readonly Counter<long> ClientSupportBundleExports = Meter.CreateCounter<long>("owlprotect.client.support_bundle.exports");
 }
