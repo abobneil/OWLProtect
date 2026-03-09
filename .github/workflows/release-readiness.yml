@@ -49,14 +49,13 @@ jobs:
       - name: Dependency vulnerability scan
         run: npm run validate:security
 
-      - name: Filesystem supply-chain scan
-        uses: aquasecurity/trivy-action@0.33.1
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@v0.2.5
         with:
-          scan-type: fs
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+          version: v0.69.3
+
+      - name: Filesystem supply-chain scan
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
 
   integration:
     name: Upgrade Validation And Smoke Tests
